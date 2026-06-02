@@ -1,0 +1,18 @@
+[project]
+name = "abm-notebooks"
+version = "0.1.0"
+requires-python = "==3.9.*"
+dependencies = [
+    "jupyter==1.0.0",
+    "notebook<7",
+    "pywinpty==2.0.13",
+    "setuptools",
+    "mesa~=0.8.8",
+    "ipynb~=0.5",
+    "axelrod~=4.10",
+    "statsmodels~=0.12",
+    "salib~=1.3",
+    "pandas~=1.3",
+    "numpy~=1.19",
+    "matplotlib~=3.3",
+]
