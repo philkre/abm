@@ -76,3 +76,28 @@ end
     all_fr = fill(FR, cfg.group_size)
     @test simulate_group(all_fr, cfg, rng) == false
 end
+
+@testset "run_sweep" begin
+    # Small config for speed: 100 groups, 200 rounds
+    test_cfg = SimConfig(
+        100, 200, 4, 20.0, 60.0, 215.0 / 21.0, DEFAULT_CONFIG.lcp
+    )
+
+    # All free-riders → no group should succeed
+    results_zero = run_sweep([0.0], test_cfg)
+    @test length(results_zero) == 1
+    @test results_zero[1] == 0.0
+
+    # All unconditional cooperators → nearly all groups succeed
+    results_one = run_sweep([1.0], test_cfg)
+    @test length(results_one) == 1
+    @test results_one[1] > 0.9
+
+    # Sweep returns one value per input proportion
+    props = collect(0.0:0.1:1.0)
+    results = run_sweep(props, test_cfg)
+    @test length(results) == length(props)
+
+    # Monotonically non-decreasing endpoint check
+    @test results[1] < results[end]
+end
