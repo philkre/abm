@@ -1,7 +1,7 @@
 function run_sweep(uc_props, cfg::SimConfig)::Vector{Float64}
     success_rates = zeros(length(uc_props))
     Threads.@threads for idx in eachindex(uc_props)
-        rng = Random.default_rng()   # thread-local in Julia 1.7+
+        rng = Random.default_rng()   # TaskLocalRNG: each @threads task has independent state
         uc  = uc_props[idx]
         n_success = 0
         for _ in 1:cfg.n_groups
