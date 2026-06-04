@@ -1,6 +1,7 @@
 include("../src/CoopDisaster.jl")
 using .CoopDisaster
 using Test
+using Random
 
 @testset "CoopDisaster" begin
     @test DEFAULT_CONFIG.n_groups == 1_000
@@ -31,4 +32,47 @@ end
     # Contributions clipped to [0, endowment]
     @test contribution(CC, 1000.0, cfg) == cfg.endowment   # upper clamp (CC has positive β)
     @test contribution(FR, -1000.0, cfg) == 0.0            # lower clamp
+end
+
+@testset "assign_types" begin
+    cfg = DEFAULT_CONFIG
+    rng = MersenneTwister(42)
+
+    # All UC
+    types = assign_types(1.0, cfg, rng)
+    @test length(types) == cfg.group_size
+    @test all(t == UC for t in types)
+
+    # All FR (uc_prop=0, cc_fr_ratio very small → all FR)
+    cfg_all_fr = SimConfig(
+        cfg.n_groups, cfg.n_rounds, cfg.group_size,
+        cfg.endowment, cfg.threshold,
+        0.0,   # cc_fr_ratio = 0 → no CC, all remaining are FR
+        cfg.lcp
+    )
+    types_fr = assign_types(0.0, cfg_all_fr, MersenneTwister(1))
+    @test all(t == FR for t in types_fr)
+
+    # Mixed: each type possible
+    rng2 = MersenneTwister(0)
+    seen = Set{PlayerType}()
+    for _ in 1:500
+        push!(seen, assign_types(0.5, cfg, rng2)...)
+    end
+    @test UC in seen
+    @test CC in seen
+    @test FR in seen
+end
+
+@testset "simulate_group convergence" begin
+    cfg = DEFAULT_CONFIG
+    rng = MersenneTwister(42)
+
+    # All-UC group must succeed (fixed point ≈ 15.65 each, total ≈ 62.6 > 60)
+    all_uc = fill(UC, cfg.group_size)
+    @test simulate_group(all_uc, cfg, rng) == true
+
+    # All-FR group must fail (fixed point ≈ 5.26 each, total ≈ 21.1 < 60)
+    all_fr = fill(FR, cfg.group_size)
+    @test simulate_group(all_fr, cfg, rng) == false
 end
