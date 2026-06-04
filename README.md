@@ -1,63 +1,66 @@
-# Cooperation in the Face of Disaster — Julia Simulation
+# Cooperation in the Face of Disaster — ABM
 
-Replicates Fig 7 from Jonsson & Jonsson (2025), *PLoS ONE* 20(4): e0318891.
+Implementation of Jonsson & Jonsson (2025), *PLoS ONE* 20(4): e0318891.
 
-**Paper:** "Cooperation in the face of disaster"  
-**Source code for paper's simulation:** [github.com/markusrobertjonsson/condcoop](https://github.com/markusrobertjonsson/condcoop)
+**Paper:** [doi.org/10.1371/journal.pone.0318891](https://doi.org/10.1371/journal.pone.0318891)  
+**Paper's simulation code:** [github.com/markusrobertjonsson/condcoop](https://github.com/markusrobertjonsson/condcoop)
 
-## What this does
+## Structure
 
-Simulates a Threshold Public Goods Game with stochastic disasters. 1000 groups of 4 players run 200 rounds each. Sweeps the proportion of Unconditional Cooperators (UC) from 0 to 1 (CC:FR ratio fixed at 10.2) and plots the fraction of groups that reach the cooperation threshold.
+```
+notebooks/          # Python/Mesa exercises (course material)
+  1/1-mesa/         # Mesa basics
+  2-3/2-axelrod/    # Axelrod tournament
+  2-3/3-discrete-choice/
+  4/                # Wolf-sheep predator-prey + sensitivity analysis
+sim/                # Julia simulation replicating Fig 7 from paper
+```
 
-## Player types
+## Paper summary
 
-Each player has a Linear Contribution Profile (LCP): `contribution = clamp(α + β × own_last_contribution, 0, 20)`.
+Threshold Public Goods Game with stochastic disasters. Groups of 4 players each contribute from a 20-unit endowment per round. If group contribution ≥ 60 when a disaster check occurs (40% probability per round), the group is safe. Otherwise earnings are zeroed.
 
-| Type | Description | α | β | Fixed point |
-|------|-------------|-----|-----|-------------|
-| UC | Unconditional Cooperator — always gives >10 | 17.60 | −0.027 | 17.13 |
-| CC | Conditional Cooperator — matches others | 0.816 | 0.865 | 6.06 |
-| FR | Free-Rider — always gives <10 | 4.10 | 0.134 | 4.74 |
+Three player types defined by Linear Contribution Profiles (LCP):
 
-Parameters are averages across 4 treatments (10P, 40P, Level, Impact) from the paper's empirical LCP analysis.
+| Type | Behaviour | Fixed point |
+|------|-----------|-------------|
+| UC — Unconditional Cooperator | Always contributes ~17 regardless of others | 17.13 |
+| CC — Conditional Cooperator | Matches others; low in isolation | 6.06 |
+| FR — Free-Rider | Always contributes ~5 | 4.74 |
 
-**Note on dynamics:** Each agent updates based on its *own* last contribution (matching the paper's `fig6.py` exactly). This makes mixed groups converge independently — only all-UC groups (4 × 17.13 = 68.5 ≥ 60) reach the threshold, producing the convex curve in Fig 7.
+Key finding: cooperation is higher and increases over time when disaster risk is present, driven by unconditional cooperators.
 
-## Setup
+## Julia simulation (Fig 7)
 
-Requires Julia 1.7+. Install dependencies once:
+Sweeps UC proportion 0→1 (CC:FR ratio fixed at 10.2), runs 1000 groups × 200 rounds, plots fraction of successful groups. Only all-UC groups reach the threshold — producing the convex curve in Fig 7.
+
+**Setup** (Julia 1.7+ required):
 
 ```bash
 cd sim
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
 
-## Run
+**Run:**
 
 ```bash
 julia --project=. --threads=auto scripts/fig7.jl
+# → saves sim/fig7.png
 ```
 
-Outputs `sim/fig7.png`.
-
-## Test
+**Test:**
 
 ```bash
 julia --project=. --threads=auto test/runtests.jl
 ```
 
-## Structure
+## Python notebooks
 
+**Setup** ([uv](https://docs.astral.sh/uv/) required):
+
+```bash
+uv sync
+uv run jupyter notebook
 ```
-sim/
-  src/
-    CoopDisaster.jl   # module entry
-    types.jl          # PlayerType, LcpParams, SimConfig, DEFAULT_CONFIG
-    lcp.jl            # contribution(type, others_mean, cfg)
-    group.jl          # assign_types, simulate_group
-    sweep.jl          # run_sweep — threaded sweep over UC proportions
-  scripts/
-    fig7.jl           # entry point: runs sweep, saves fig7.png
-  test/
-    runtests.jl       # 30 tests
-```
+
+Navigate to `notebooks/` in Jupyter.
