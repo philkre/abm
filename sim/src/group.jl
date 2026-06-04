@@ -12,7 +12,8 @@ function assign_types(uc_prop::Float64, cfg::SimConfig, rng::AbstractRNG)::Vecto
     end
 end
 
-function simulate_group(types::Vector{PlayerType}, cfg::SimConfig, rng::AbstractRNG)::Bool
+function simulate_group(types::Vector{PlayerType}, cfg::SimConfig, ::AbstractRNG)::Bool
+    # rng unused: LCP dynamics are deterministic; kept for uniform API with run_sweep
     contribs = [cfg.lcp[t].init for t in types]
     for _ in 1:cfg.n_rounds
         prev = copy(contribs)
