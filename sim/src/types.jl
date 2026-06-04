@@ -18,7 +18,7 @@ end
 
 # Parameters estimated from Fig 6. Fixed-point constraint: 4 × α/(1−β) ≥ 60.
 # UC: α/(1−β) = 18/1.15 ≈ 15.65, group total ≈ 62.6 ✓
-# CC: α/(1−β) = 5/0.5  = 10.00, group total = 40.0
+# CC: α/(1−β) = 5/(1-0.5) = 10.00, group total = 40.0
 # FR: α/(1−β) = 5/0.95 ≈  5.26, group total ≈ 21.1
 const DEFAULT_CONFIG = SimConfig(
     1_000,
