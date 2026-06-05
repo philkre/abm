@@ -1,8 +1,16 @@
 # Installation
 
+## Clone
+
+```bash
+git clone <repo-url>
+cd abm
+git submodule update --init
+```
+
 ## Python package (`src/`)
 
-Requires [uv](https://docs.astral.sh/uv/) and Python ≥ 3.11.
+Requires [uv](https://docs.astral.sh/uv/) and Python ≥ 3.13.
 
 ### Install
 

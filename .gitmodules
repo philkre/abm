@@ -1,0 +1,3 @@
+[submodule "src/condcoop"]
+	path = src/condcoop
+	url = https://github.com/markusrobertjonsson/condcoop
