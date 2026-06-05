@@ -1,1 +1,7 @@
+*.pdf
+
+# Python runtime files
 .venv
+*.pyc
+__pycache__/
+
