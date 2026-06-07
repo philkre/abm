@@ -64,3 +64,34 @@ class SimConfig:
 
 
 DEFAULT_CONFIG = SimConfig()
+
+
+@dataclass(frozen=True)
+class LatticeConfig:
+    """Configuration for the spatial lattice + Fermi evolutionary model.
+
+    Agents sit on an L×L torus. Each agent's group = self + 4 Von Neumann
+    neighbours (group size 5). Types evolve via the Fermi update rule.
+
+    Args:
+        grid_size: Side length L of the L×L torus.
+        n_gen: Number of evolutionary generations to run.
+        kappa: Fermi noise temperature. Near 0 → best-takes-over;
+               large → random drift.
+        init_uc: Initial proportion of UC agents.
+        init_cc: Initial proportion of CC agents (FR fills remainder).
+        group_threshold: Minimum group contribution for success.
+                         Default 75 = 75% of max (5 agents × 20 endowment × 0.75).
+        snapshot_every: Save a full grid snapshot every N generations.
+    """
+
+    grid_size: int = 50
+    n_gen: int = 500
+    kappa: float = 0.1
+    init_uc: float = 0.56
+    init_cc: float = 0.358
+    group_threshold: float = 75.0
+    snapshot_every: int = 50
+
+
+DEFAULT_LATTICE_CONFIG = LatticeConfig()
