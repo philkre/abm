@@ -22,7 +22,6 @@ spatial-analysis = "spatial.analysis:main"
 [dependency-groups]
 dev = [
     "black>=24.0",
-    "markitdown[pdf]>=0.1.6",
     "pytest>=8.0",
 ]
 
