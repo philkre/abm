@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 class HouseholdAgent(CellAgent):
     """A household on the Von Neumann lattice.
 
-    Serves as a data container; all simulation logic lives in the model.
+    Pure data container — all simulation logic lives in the model.
 
     Attributes:
         strategy: "UC" (unconditional cooperator) or "D" (defector).
@@ -35,9 +35,3 @@ class HouseholdAgent(CellAgent):
         self.contribution: float = 0.0
         self.payoff: float = 0.0
         self.disaster: bool = False
-
-    def determine_contribution(self) -> float:
-        """Return contribution amount based on strategy."""
-        if self.strategy == "UC":
-            return self.model.config.contribution
-        return 0.0

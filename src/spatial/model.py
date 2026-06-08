@@ -44,9 +44,13 @@ class SpatialCollectiveRiskModel(mesa.Model):
         )
 
         for cell in self.grid.all_cells:
-            strategy = "UC" if self.random.random() < config.initial_uc_fraction else "D"
+            strategy = (
+                "UC" if self.random.random() < config.initial_uc_fraction else "D"
+            )
             agent = HouseholdAgent(self, strategy, config.initial_wealth)
             agent.cell = cell
+
+        self._pools: dict[int, float] = {}
 
         self.datacollector = DataCollector(
             model_reporters={
@@ -74,16 +78,13 @@ class SpatialCollectiveRiskModel(mesa.Model):
     # Neighbourhood helpers
     # ------------------------------------------------------------------
 
-    def _focal_group(self, agent: HouseholdAgent) -> list[HouseholdAgent]:
-        """Return [agent] + its 4 Von Neumann neighbours.  Always length 5."""
-        neighbours = [next(iter(c.agents)) for c in agent.cell.connections.values()]
-        group = [agent] + neighbours
-        assert len(group) == 5
-        return group
-
     def _neighbours(self, agent: HouseholdAgent) -> list[HouseholdAgent]:
         """Return the 4 Von Neumann neighbours (excludes the agent itself)."""
         return [next(iter(c.agents)) for c in agent.cell.connections.values()]
+
+    def _focal_group(self, agent: HouseholdAgent) -> list[HouseholdAgent]:
+        """Return [agent] + its Von Neumann neighbours."""
+        return [agent] + self._neighbours(agent)
 
     # ------------------------------------------------------------------
     # Phase methods
@@ -91,10 +92,11 @@ class SpatialCollectiveRiskModel(mesa.Model):
 
     def _contribution_phase(self) -> None:
         for agent in self.agents:
-            agent.contribution = agent.determine_contribution()
+            agent.contribution = (
+                self.config.contribution if agent.strategy == "UC" else 0.0
+            )
 
     def _pool_phase(self) -> None:
-        self._pools: dict[int, float] = {}
         for agent in self.agents:
             self._pools[agent.unique_id] = sum(
                 m.contribution for m in self._focal_group(agent)
@@ -118,12 +120,16 @@ class SpatialCollectiveRiskModel(mesa.Model):
             agent.payoff = agent.wealth - wealth_before
 
     def _strategy_update_phase(self) -> None:
-        """Synchronous Fermi imitation: collect all updates, then apply."""
+        """Synchronous Fermi imitation using accumulated wealth as fitness proxy.
+
+        Wealth integrates performance over all past rounds, giving a more
+        robust signal than single-round payoff.
+        """
         cfg = self.config
         new_strategies: dict[int, str] = {}
         for agent in self.agents:
             neighbour = self.random.choice(self._neighbours(agent))
-            delta = neighbour.payoff - agent.payoff
+            delta = neighbour.wealth - agent.wealth
             prob = 1.0 / (1.0 + exp(-cfg.beta * delta))
             new_strategies[agent.unique_id] = (
                 neighbour.strategy if self.random.random() < prob else agent.strategy
