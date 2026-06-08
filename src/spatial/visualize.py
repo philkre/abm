@@ -23,16 +23,18 @@ PLOT_DIR = Path(__file__).parent.parent.parent / "plots"
 PLOT_DIR.mkdir(exist_ok=True)
 
 # -------------------------------------------------------------------
-# Colour scheme: Defector=warm red, UC=steel blue
+# Colour scheme: D=warm red, CC=orange, UC=steel blue  (value 0/1/2)
 # -------------------------------------------------------------------
-CMAP = mcolors.ListedColormap(["#d62728", "#1f77b4"])  # D, UC
+CMAP = mcolors.ListedColormap(["#d62728", "#ff7f0e", "#1f77b4"])  # D, CC, UC
+_STRATEGY_VAL = {"D": 0, "CC": 1, "UC": 2}
 
 # -------------------------------------------------------------------
 # Run configuration (lighter than the default for faster rendering)
 # -------------------------------------------------------------------
 VIZ_CONFIG = ModelConfig(
     grid_size=40,
-    initial_uc_fraction=0.5,
+    initial_uc_fraction=0.33,
+    initial_cc_fraction=0.33,
     n_steps=300,
     seed=42,
 )
@@ -45,17 +47,17 @@ CAPTURE_EVERY = 3  # save a frame every N steps for the animation
 # -------------------------------------------------------------------
 
 def _grid_array(model: SpatialCollectiveRiskModel) -> np.ndarray:
-    """Return a (grid_size, grid_size) array: 1 = UC, 0 = D."""
+    """Return a (grid_size, grid_size) uint8 array: 0=D, 1=CC, 2=UC."""
     n = model.config.grid_size
     arr = np.zeros((n, n), dtype=np.uint8)
     for agent in model.agents:
         x, y = agent.cell.coordinate
-        arr[y, x] = 1 if agent.strategy == "UC" else 0
+        arr[y, x] = _STRATEGY_VAL[agent.strategy]
     return arr
 
 
-def _coop_rate(arr: np.ndarray) -> float:
-    return arr.mean()
+def _uc_rate(arr: np.ndarray) -> float:
+    return (arr == 2).mean()
 
 
 # -------------------------------------------------------------------
@@ -98,14 +100,15 @@ def save_snapshots(
     fig, axes = plt.subplots(2, 3, figsize=(9, 6.5))
     for ax, s in zip(axes.flat, chosen):
         arr = step_to_frame[s]
-        ax.imshow(arr, cmap=CMAP, vmin=0, vmax=1, origin="lower", interpolation="nearest")
-        ax.set_title(f"t = {s}  (coop = {_coop_rate(arr):.2f})", fontsize=9)
+        ax.imshow(arr, cmap=CMAP, vmin=0, vmax=2, origin="lower", interpolation="nearest")
+        ax.set_title(f"t = {s}  (UC = {_uc_rate(arr):.2f})", fontsize=9)
         ax.axis("off")
 
     # Legend
     from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor="#1f77b4", label="UC"),
+        Patch(facecolor="#ff7f0e", label="CC"),
         Patch(facecolor="#d62728", label="D"),
     ]
     fig.legend(handles=legend_elements, loc="lower center", ncol=2, fontsize=9,
@@ -128,14 +131,14 @@ def save_animation(frames: list[np.ndarray], steps: list[int]) -> None:
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.axis("off")
     img = ax.imshow(
-        frames[0], cmap=CMAP, vmin=0, vmax=1,
+        frames[0], cmap=CMAP, vmin=0, vmax=2,
         origin="lower", interpolation="nearest",
     )
-    title = ax.set_title(f"t = {steps[0]}  (coop = {_coop_rate(frames[0]):.2f})", fontsize=10)
+    title = ax.set_title(f"t = {steps[0]}  (UC = {_uc_rate(frames[0]):.2f})", fontsize=10)
 
     def update(i: int):
         img.set_data(frames[i])
-        title.set_text(f"t = {steps[i]}  (coop = {_coop_rate(frames[i]):.2f})")
+        title.set_text(f"t = {steps[i]}  (UC = {_uc_rate(frames[i]):.2f})")
         return img, title
 
     ani = animation.FuncAnimation(

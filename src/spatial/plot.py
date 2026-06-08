@@ -26,19 +26,25 @@ plt.style.use(styles)
 def main() -> None:
     df = load(DATA_DIR / "spatial_tpgg.pkl")
 
-    fig, axes = plt.subplots(3, 1, figsize=(6, 7), sharex=True)
+    fig, axes = plt.subplots(4, 1, figsize=(6, 9), sharex=True)
 
-    axes[0].plot(df.index, df["cooperation_rate"])
-    axes[0].set_ylabel("Cooperation rate")
+    axes[0].plot(df.index, df["uc_rate"], label="UC")
+    axes[0].plot(df.index, df["cc_rate"], label="CC", linestyle="--")
+    axes[0].set_ylabel("Strategy fraction")
     axes[0].set_ylim(0, 1)
+    axes[0].legend(fontsize=8)
 
-    axes[1].plot(df.index, df["mean_wealth"])
-    axes[1].set_ylabel("Mean wealth")
+    axes[1].plot(df.index, df["cooperation_rate"])
+    axes[1].set_ylabel("Cooperation rate (UC+CC)")
+    axes[1].set_ylim(0, 1)
 
-    axes[2].plot(df.index, df["disaster_rate"])
-    axes[2].set_ylabel("Disaster rate")
-    axes[2].set_ylim(0, 1)
-    axes[2].set_xlabel("Step")
+    axes[2].plot(df.index, df["mean_wealth"])
+    axes[2].set_ylabel("Mean wealth")
+
+    axes[3].plot(df.index, df["disaster_rate"])
+    axes[3].set_ylabel("Disaster rate")
+    axes[3].set_ylim(0, 1)
+    axes[3].set_xlabel("Step")
 
     fig.suptitle("Spatial threshold PGG — sanity check")
     plt.tight_layout()

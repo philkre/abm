@@ -15,10 +15,15 @@ from spatial.config import DEFAULT_CONFIG, ModelConfig
 class SpatialCollectiveRiskModel(mesa.Model):
     """Spatial threshold public goods game on a square Von Neumann lattice.
 
-    Agents are Unconditional Cooperators (UC) or Defectors (D).  Each step
-    they pool contributions within their focal group (agent + 4 neighbours),
-    face an independent disaster draw if the pool falls below a threshold,
-    and update strategies by synchronous Fermi imitation.
+    Agents are Unconditional Cooperators (UC), Conditional Cooperators (CC),
+    or Defectors (D).  Each step they pool contributions within their focal
+    group (agent + 4 neighbours), face an independent disaster draw if the
+    pool falls below a threshold, and update strategies by synchronous Fermi
+    imitation.
+
+    CC agents match the mean of their neighbours' contributions from the
+    *previous* round.  This down-matching under defector pressure is the
+    mechanism by which UC out-competes CC under stochastic disaster risk.
 
     Parameters
     ----------
@@ -43,17 +48,32 @@ class SpatialCollectiveRiskModel(mesa.Model):
             random=self.random,
         )
 
+        uc_thresh = config.initial_uc_fraction
+        cc_thresh = config.initial_uc_fraction + config.initial_cc_fraction
+
         for cell in self.grid.all_cells:
-            strategy = (
-                "UC" if self.random.random() < config.initial_uc_fraction else "D"
+            r = self.random.random()
+            if r < uc_thresh:
+                strategy = "UC"
+            elif r < cc_thresh:
+                strategy = "CC"
+            else:
+                strategy = "D"
+            # CC agents start as full cooperators (prev_contribution = max contribution)
+            agent = HouseholdAgent(
+                self,
+                strategy,
+                config.initial_wealth,
+                initial_contribution=config.contribution,
             )
-            agent = HouseholdAgent(self, strategy, config.initial_wealth)
             agent.cell = cell
 
         self._pools: dict[int, float] = {}
 
         self.datacollector = DataCollector(
             model_reporters={
+                "uc_rate": self._uc_rate,
+                "cc_rate": self._cc_rate,
                 "cooperation_rate": self._cooperation_rate,
                 "mean_wealth": self._mean_wealth,
                 "disaster_rate": self._disaster_rate,
@@ -72,6 +92,7 @@ class SpatialCollectiveRiskModel(mesa.Model):
         self._payoff_phase()
         self._strategy_update_phase()
         self._mutation_phase()
+        self._update_prev_contributions_phase()
         self.datacollector.collect(self)
 
     # ------------------------------------------------------------------
@@ -91,10 +112,17 @@ class SpatialCollectiveRiskModel(mesa.Model):
     # ------------------------------------------------------------------
 
     def _contribution_phase(self) -> None:
+        cfg = self.config
         for agent in self.agents:
-            agent.contribution = (
-                self.config.contribution if agent.strategy == "UC" else 0.0
-            )
+            if agent.strategy == "UC":
+                agent.contribution = cfg.contribution
+            elif agent.strategy == "D":
+                agent.contribution = 0.0
+            else:  # CC: match mean of neighbours' contributions from the previous round
+                mean_prev = (
+                    sum(n.prev_contribution for n in self._neighbours(agent)) / 4
+                )
+                agent.contribution = min(mean_prev, cfg.contribution)
 
     def _pool_phase(self) -> None:
         for agent in self.agents:
@@ -111,11 +139,13 @@ class SpatialCollectiveRiskModel(mesa.Model):
                 agent.disaster = self.random.random() < cfg.disaster_prob
 
     def _payoff_phase(self) -> None:
+        cfg = self.config
         for agent in self.agents:
             wealth_before = agent.wealth
+            agent.wealth += cfg.income           # receive round endowment
             agent.wealth -= agent.contribution
             if agent.disaster:
-                loss = self.config.loss_fraction * agent.wealth
+                loss = cfg.loss_fraction * agent.wealth
                 agent.wealth -= loss
             agent.payoff = agent.wealth - wealth_before
 
@@ -138,17 +168,34 @@ class SpatialCollectiveRiskModel(mesa.Model):
             agent.strategy = new_strategies[agent.unique_id]
 
     def _mutation_phase(self) -> None:
+        strategies = ("UC", "CC", "D")
         for agent in self.agents:
             if self.random.random() < self.config.mu:
-                agent.strategy = "D" if agent.strategy == "UC" else "UC"
+                agent.strategy = self.random.choice(
+                    [s for s in strategies if s != agent.strategy]
+                )
+
+    def _update_prev_contributions_phase(self) -> None:
+        """Store each agent's contribution so CC can read it next round."""
+        for agent in self.agents:
+            agent.prev_contribution = agent.contribution
 
     # ------------------------------------------------------------------
     # DataCollector reporters
     # ------------------------------------------------------------------
 
-    def _cooperation_rate(self) -> float:
+    def _uc_rate(self) -> float:
         agents = list(self.agents)
         return sum(a.strategy == "UC" for a in agents) / len(agents)
+
+    def _cc_rate(self) -> float:
+        agents = list(self.agents)
+        return sum(a.strategy == "CC" for a in agents) / len(agents)
+
+    def _cooperation_rate(self) -> float:
+        """Fraction of non-defectors (UC + CC)."""
+        agents = list(self.agents)
+        return sum(a.strategy != "D" for a in agents) / len(agents)
 
     def _mean_wealth(self) -> float:
         agents = list(self.agents)
