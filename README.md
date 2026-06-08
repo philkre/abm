@@ -15,6 +15,11 @@ src/coop_disaster/  # Python ABM package (Fig 7 sweep)
   sweep.py          # run_sweep() — parallel UC proportion sweep
   plot.py           # plot_fig7()
   __main__.py       # CLI entry point (argparse)
+src/spatial/        # Spatial threshold PGG on a Von Neumann lattice (Mesa 3.x)
+  config.py         # ModelConfig dataclass + DEFAULT_CONFIG
+  agents.py         # HouseholdAgent (UC / D strategies, CellAgent)
+  model.py          # SpatialCollectiveRiskModel — full phase-based step loop
+  run.py            # Entry point: run 500 steps, save results.png
 julia_implementation/  # Julia simulation (reference implementation)
 notebooks/          # Python/Mesa exercises (course material)
   1/1-mesa/         # Mesa basics
@@ -97,6 +102,50 @@ cfg = SimConfig(n_groups=500, n_rounds=200)
 uc_props = [i / 100 for i in range(101)]
 rates = run_sweep(uc_props, cfg, n_jobs=4)
 ```
+
+## Spatial threshold PGG (src/spatial/)
+
+A minimal spatial collective-risk game on a 20×20 torus with Von Neumann
+neighbourhoods.  Agents are Unconditional Cooperators (UC) or Defectors (D).
+They pool contributions within focal groups (agent + 4 neighbours), face
+independent disaster draws when the pool is below the threshold, and update
+strategies by synchronous Fermi imitation.
+
+**Run (500 steps, saves `results.png`):**
+
+```bash
+uv run spatial-run
+```
+
+**Use as a library:**
+
+```python
+from spatial import SpatialCollectiveRiskModel, ModelConfig
+
+cfg = ModelConfig(grid_size=20, n_steps=500, seed=42)
+model = SpatialCollectiveRiskModel(cfg)
+for _ in range(cfg.n_steps):
+    model.step()
+df = model.datacollector.get_model_vars_dataframe()
+```
+
+**Key parameters** (all in `ModelConfig`):
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `grid_size` | 20 | Side length of the square lattice |
+| `initial_uc_fraction` | 0.5 | Starting UC fraction |
+| `initial_wealth` | 10.0 | Initial wealth per agent |
+| `contribution` | 1.0 | UC contribution per round |
+| `threshold` | 3.0 | Pool sum needed to avert disaster |
+| `disaster_prob` | 0.5 | Prob of loss if pool < threshold |
+| `loss_fraction` | 0.5 | Fraction of wealth lost in disaster |
+| `beta` | 1.0 | Fermi selection strength |
+| `mu` | 0.001 | Mutation probability per agent per step |
+| `n_steps` | 500 | Steps run by `spatial-run` |
+| `seed` | 42 | RNG seed |
+
+---
 
 ## Python notebooks
 
