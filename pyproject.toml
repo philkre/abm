@@ -8,6 +8,7 @@ dependencies = [
     "matplotlib>=3.8",
     "mesa>=3.0",
     "networkx>=3.0",
+    "numba>=0.65.1",
     "numpy>=1.26",
     "scienceplots>=2.0",
 ]
@@ -19,6 +20,7 @@ spatial-run = "spatial.run:main"
 [dependency-groups]
 dev = [
     "black>=24.0",
+    "markitdown[pdf]>=0.1.6",
     "pytest>=8.0",
 ]
 
