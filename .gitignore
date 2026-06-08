@@ -5,3 +5,13 @@
 *.pyc
 __pycache__/
 
+# Personal LLM Instructions
+CLAUDE.md
+
+# Data files
+.pkl
+data/
+
+# Figures and plots
+*.gif
+*.png
