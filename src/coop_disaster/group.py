@@ -6,9 +6,22 @@ Corresponds to condcoop's Distribution, Group, and Simulation classes.
 import random
 
 import mesa
+import numpy as np
+from numba import njit
 
-from coop_disaster.lcp import contribution
 from coop_disaster.types import PlayerType, SimConfig
+
+
+@njit(cache=True)
+def _step_contributions(
+    contrib: np.ndarray,
+    alphas: np.ndarray,
+    betas: np.ndarray,
+    endowment: float,
+) -> np.ndarray:
+    """JIT-compiled one-round LCP update for all agents simultaneously."""
+    others_mean = (contrib.sum() - contrib) / (len(contrib) - 1)
+    return np.clip(alphas + betas * others_mean, 0.0, endowment)
 
 
 class PlayerAgent(mesa.Agent):
@@ -45,14 +58,18 @@ class DisasterGroupModel(mesa.Model):
         self.cfg = cfg
         for t in types:
             PlayerAgent(self, t)
+        # Cache LCP param arrays in agent order for njit step
+        agents = list(self.agents)
+        self._alphas = np.array([cfg.lcp[a.player_type].alpha for a in agents])
+        self._betas = np.array([cfg.lcp[a.player_type].beta for a in agents])
 
     def step(self) -> None:
-        """One round: snapshot contributions, then update all agents simultaneously."""
+        """One round: snapshot contributions, compute update via njit, write back."""
         agents = list(self.agents)
-        prev = [a.contribution for a in agents]
-        for i, agent in enumerate(agents):
-            others_mean = sum(prev[:i] + prev[i + 1 :]) / (len(prev) - 1)
-            agent.contribution = contribution(agent.player_type, others_mean, self.cfg)
+        contrib = np.array([a.contribution for a in agents])
+        new_contrib = _step_contributions(contrib, self._alphas, self._betas, self.cfg.endowment)
+        for agent, c in zip(agents, new_contrib):
+            agent.contribution = float(c)
 
     def run(self) -> bool:
         """Run n_rounds and return True if the final group total meets the threshold.

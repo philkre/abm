@@ -1,8 +1,14 @@
 """CLI entry point: run the Fig 7 sweep from the command line."""
 
 import argparse
+import logging
 import time
 from pathlib import Path
+from coop_disaster.sweep import run_sweep
+from coop_disaster.types import SimConfig
+from coop_disaster.plot import plot_fig7
+
+log = logging.getLogger(__name__)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -55,37 +61,46 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip plot generation, only print results to stdout",
     )
+    p.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="enable DEBUG logging",
+    )
     return p
 
 
 def main(argv: list[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
 
-    from coop_disaster.sweep import run_sweep
-    from coop_disaster.types import SimConfig
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(message)s",
+    )
+    if not args.verbose:
+        logging.getLogger("MESA").setLevel(logging.WARNING)
 
     cfg = SimConfig(n_groups=args.n_groups, n_rounds=args.n_rounds)
+    # UC (unconditional cooperators) proportions to sweep from 0 to 1
     uc_props = [i / (args.uc_steps - 1) for i in range(args.uc_steps)]
 
-    print("Running Fig 7 simulation...")
-    print(f"  Groups: {cfg.n_groups}  |  Rounds: {cfg.n_rounds}  |  Workers: {args.jobs}")
+    log.info("Running Fig 7 simulation...")
+    log.info("  Groups: %d  |  Rounds: %d  |  Workers: %d", cfg.n_groups, cfg.n_rounds, args.jobs)
 
     t0 = time.perf_counter()
     success_rates = run_sweep(uc_props, cfg, n_jobs=args.jobs)
     elapsed = time.perf_counter() - t0
-    print(f"  Done in {elapsed:.2f}s\n")
+    log.info("  Done in %.2fs", elapsed)
 
     step = max(1, len(uc_props) // 10)
-    print(f"{'UC prop':>8}  {'Success rate':>12}")
-    print("-" * 23)
+    log.info("%8s  %12s", "UC prop", "Success rate")
+    log.info("-" * 23)
     for i in range(0, len(uc_props), step):
-        print(f"  {uc_props[i]:.2f}    {success_rates[i]:.3f}")
+        log.info("  %.2f    %.3f", uc_props[i], success_rates[i])
 
     if not args.no_plot:
-        from coop_disaster.plot import plot_fig7
-
         plot_fig7(uc_props, success_rates, args.output)
-        print(f"\nPlot saved to {args.output}")
+        log.info("Plot saved to %s", args.output)
 
 
 if __name__ == "__main__":

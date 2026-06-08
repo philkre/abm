@@ -57,8 +57,9 @@ class SimConfig:
     n_groups: int = 1_000
     n_rounds: int = 200
     group_size: int = 4
-    endowment: float = 20.0
+    endowment: float = 20.0  # Max contribution
     threshold: float = 60.0
+    # Empirically: UC:0.56, CC:0.358, FR:0.035, so CC/FR=10.2
     cc_fr_ratio: float = 10.2
     lcp: dict[PlayerType, LcpParams] = field(default_factory=lambda: _DEFAULT_LCP)
 
