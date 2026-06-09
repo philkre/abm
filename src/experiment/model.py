@@ -3,11 +3,18 @@
 Replicates the structure of a single experimental session from
 Jonsson & Jonsson (2025). Phase order each round:
 
-  1. Contribution — agents submit contributions (already set from prior round)
-  2. Pool         — sum contributions into group pot
-  3. Disaster     — stochastic check; zero wealth if pool < threshold
-  4. Payoff       — compute round earnings, update wealth
-  5. Learning     — agents update contributions via aspiration rule
+  1. Contribution — agents play the contribution set last round (or init)
+  2. Pool         — sum contributions into the group pot
+  3. Check        — with prob `disaster_prob` a threshold check fires
+  4. Payoff       — round earnings = (endowment - contribution) + public-good
+                    share (multiplier · pot / group_size). On a failed check
+                    (disaster) cumulative wealth is wiped to zero and the
+                    learning signal is a bounded negative penalty.
+  5. Learning     — agents update contributions via the aspiration rule
+
+Payoff model (paper): the pot is multiplied by `multiplier` (1.6) and split
+evenly across the group, so each agent receives `multiplier · pot / n`.
+A disaster (failed check) zeroes cumulative individual + group earnings.
 """
 
 from __future__ import annotations
@@ -26,6 +33,11 @@ class ExperimentModel(mesa.Model):
         treatment: Treatment configuration (disaster prob, threshold, etc.).
         agent_cfg: Aspiration learning parameters shared across agents.
         seed: RNG seed for reproducibility.
+
+    Recorded across the session (for paper-comparable metrics):
+        contrib_record: list[list[float]] — contributions played each round.
+        check_fired:    list[bool] — whether a threshold check fired each round.
+        check_passed:   list[bool] — whether pot >= threshold given a check.
     """
 
     def __init__(
@@ -36,11 +48,15 @@ class ExperimentModel(mesa.Model):
     ) -> None:
         super().__init__(rng=seed)
         self.treatment = treatment
+        self._disaster_penalty = agent_cfg.disaster_penalty
 
         for _ in range(treatment.group_size):
             HouseholdAgent(self, treatment, agent_cfg)
 
-        self._pools: dict[int, float] = {}
+        # Per-round records (paper-comparable metrics)
+        self.contrib_record: list[list[float]] = []
+        self.check_fired: list[bool] = []
+        self.check_passed: list[bool] = []
 
         self.datacollector = DataCollector(
             model_reporters={
@@ -57,8 +73,15 @@ class ExperimentModel(mesa.Model):
 
     def step(self) -> None:
         pool = self._pool_phase()
-        self._disaster_phase(pool)
-        self._payoff_phase()
+        fired, passed = self._check_phase(pool)
+        disaster = fired and not passed
+
+        # Record the contributions actually played this round, before learning.
+        self.contrib_record.append([a.contribution for a in self.agents])
+        self.check_fired.append(fired)
+        self.check_passed.append(passed)
+
+        self._payoff_phase(pool, disaster)
         self._learning_phase()
         self.datacollector.collect(self)
 
@@ -73,29 +96,37 @@ class ExperimentModel(mesa.Model):
         """Sum all contributions into the group pot."""
         return sum(a.contribution for a in self.agents)
 
-    def _disaster_phase(self, pool: float) -> None:
-        """Stochastic disaster check. Zero wealth if pool < threshold."""
-        cfg = self.treatment
-        disaster_fires = (
-            cfg.disaster_prob > 0.0
-            and self.random.random() < cfg.disaster_prob
-            and pool < cfg.sample_threshold(self.random)
-        )
-        for agent in self.agents:
-            agent.disaster = disaster_fires
-            if disaster_fires:
-                agent.wealth = 0.0
+    def _check_phase(self, pool: float) -> tuple[bool, bool]:
+        """Decide whether a check fires and whether the group passed it.
 
-    def _payoff_phase(self) -> None:
-        """Round earnings = endowment - contribution (zeroed on disaster)."""
-        endowment = self.treatment.endowment
+        Returns (fired, passed). `passed` is meaningful only when `fired`.
+        """
+        cfg = self.treatment
+        if cfg.disaster_prob <= 0.0 or self.random.random() >= cfg.disaster_prob:
+            return False, True
+        threshold = cfg.sample_threshold(self.random)
+        return True, pool >= threshold
+
+    def _payoff_phase(self, pool: float, disaster: bool) -> None:
+        """Round earnings incl. public-good share; wipe wealth on disaster.
+
+        Non-disaster: payoff = (endowment - contribution) + multiplier·pot/n,
+        added to cumulative wealth.
+        Disaster:     cumulative wealth wiped to 0; learning signal = bounded
+        negative penalty (decoupled from the unbounded wealth loss so a single
+        wipeout doesn't crater the aspiration moving average for many rounds).
+        """
+        cfg = self.treatment
+        share = cfg.multiplier * pool / cfg.group_size
         for agent in self.agents:
-            round_earnings = endowment - agent.contribution
-            if agent.disaster:
-                agent.payoff = -agent.wealth   # wealth already zeroed; signal the loss
+            agent.disaster = disaster
+            if disaster:
+                agent.wealth = 0.0
+                agent.payoff = -self._disaster_penalty
             else:
-                agent.payoff = round_earnings
+                round_earnings = (cfg.endowment - agent.contribution) + share
                 agent.wealth += round_earnings
+                agent.payoff = round_earnings
 
     def _learning_phase(self) -> None:
         """All agents update contributions simultaneously (synchronous)."""
@@ -112,8 +143,7 @@ class ExperimentModel(mesa.Model):
         return sum(a.contribution for a in self.agents)
 
     def _disaster_rate(self) -> float:
-        agents = list(self.agents)
-        return float(any(a.disaster for a in agents))
+        return float(any(a.disaster for a in self.agents))
 
     def _mean_wealth(self) -> float:
         agents = list(self.agents)

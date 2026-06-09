@@ -30,5 +30,9 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/coop_disaster", "src/condcoop", "src/spatial", "src/experiment"]

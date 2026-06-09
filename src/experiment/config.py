@@ -36,6 +36,7 @@ class TreatmentConfig:
     n_rounds: int = 20
     group_size: int = 4
     endowment: float = 20.0
+    multiplier: float = 1.6      # public-good multiplier (paper: pot ×1.6, split 4 ways)
 
     def sample_threshold(self, rng) -> float:
         """Return the active threshold for one disaster check."""
@@ -46,25 +47,46 @@ class TreatmentConfig:
 
 @dataclass(frozen=True)
 class AgentConfig:
-    """Aspiration-based learning parameters.
+    """Asymmetric aspiration-learning parameters.
 
-    Each agent maintains a contribution level and an aspiration (target payoff).
-    After each round:
-      - If payoff < aspiration  → increase contribution by delta (cooperate more)
-      - If payoff >= aspiration → decrease contribution by delta (defect a little)
+    Each agent keeps a contribution level and an aspiration (target payoff).
+    After each round (see HouseholdAgent.update):
+      - Disaster this round       → jump contribution up by delta_up
+                                    (the empirical "got burned" response, Fig 5)
+      - Safe & payoff >= aspiration → free-ride a little down by contrib_delta
+      - Safe & payoff <  aspiration → nudge up by contrib_delta
     Aspiration tracks a moving average of received payoffs.
 
+    The disaster bump is what differentiates treatments from Control: with no
+    disasters the rule has only the free-ride pull, so Control contributions
+    decline, while disaster risk sustains cooperation near the threshold.
+
+    Per-agent heterogeneity (the source of the emergent UC/CC/FR type mix):
+    each agent draws its initial aspiration uniformly from
+    [aspiration_lo, aspiration_hi]. A higher aspiration is rarely satisfied →
+    higher sustained contribution → classified UC; a lower aspiration is easily
+    satisfied → free-rides → classified FR.
+
     Args:
-        contrib_init: Starting contribution (MU). Paper average ≈ 12.
-        aspiration_init: Starting aspiration level (MU).
+        contrib_init: Starting contribution (MU). Paper round-1 average ≈ 12.
+        aspiration_lo: Lower bound of the per-agent initial aspiration draw.
+        aspiration_hi: Upper bound of the per-agent initial aspiration draw.
         aspiration_alpha: Aspiration update learning rate ∈ (0, 1].
-        contrib_delta: Step size for contribution adjustment (MU).
+        contrib_delta: Safe-round step size for contribution adjustment (MU).
+        delta_up: Upward step taken on a disaster round (MU); larger than
+            contrib_delta to reproduce the post-failed-check ratchet (Fig 5).
+        disaster_penalty: Bounded negative learning signal on a disaster round,
+            fed to the aspiration moving average. Decoupled from the (unbounded)
+            cumulative wealth wipeout so one wipeout doesn't crater aspiration.
     """
 
-    contrib_init: float = 12.0
-    aspiration_init: float = 8.0    # slightly below endowment - contrib_init
-    aspiration_alpha: float = 0.2
-    contrib_delta: float = 1.0
+    contrib_init: float = 12.0          # paper round-1 mean ≈ 12
+    aspiration_lo: float = 20.0
+    aspiration_hi: float = 36.0
+    aspiration_alpha: float = 0.3
+    contrib_delta: float = 1.0          # step on a safe round (aspiration rule)
+    delta_up: float = 6.0               # step up after a disaster (got-burned response)
+    disaster_penalty: float = 20.0
 
 
 # ── Treatment definitions ──────────────────────────────────────────────────

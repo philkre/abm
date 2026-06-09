@@ -13,7 +13,14 @@ from experiment.config import (
 )
 from experiment.agents import HouseholdAgent
 from experiment.model import ExperimentModel
-from experiment.run import run_sessions, run_all_treatments
+from experiment.run import TreatmentResults, run_sessions, run_all_treatments
+from experiment.analysis import (
+    TYPES,
+    classify_lcp,
+    classify_session,
+    fit_lcp,
+    type_distribution,
+)
 
 __all__ = [
     "AgentConfig",
@@ -22,6 +29,12 @@ __all__ = [
     "DEFAULT_AGENT_CONFIG",
     "HouseholdAgent",
     "ExperimentModel",
+    "TreatmentResults",
     "run_sessions",
     "run_all_treatments",
+    "TYPES",
+    "fit_lcp",
+    "classify_lcp",
+    "classify_session",
+    "type_distribution",
 ]
