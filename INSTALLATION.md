@@ -8,6 +8,24 @@ cd abm
 git submodule update --init
 ```
 
+## LLM instruction symlinks (Windows)
+
+`CLAUDE.md` and `.github/copilot-instructions.md` are symlinks to `llm_hints/llm_instructions.md`. On macOS/Linux these resolve automatically. On Windows, Git does not create real symlinks by default, so the files may appear as text stubs containing the target path.
+
+**Fix (run once, as Administrator or with Developer Mode enabled):**
+
+```powershell
+# Enable symlink support in Git (requires Developer Mode or admin)
+git config --global core.symlinks true
+
+# Re-create the symlinks
+Remove-Item CLAUDE.md, .github\copilot-instructions.md -ErrorAction SilentlyContinue
+New-Item -ItemType SymbolicLink -Path CLAUDE.md             -Target llm_hints\llm_instructions.md
+New-Item -ItemType SymbolicLink -Path .github\copilot-instructions.md -Target ..\llm_hints\llm_instructions.md
+```
+
+Alternatively, enable [Windows Developer Mode](https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development) so that symlink creation does not require elevation, then re-clone the repository.
+
 ## Python package (`src/`)
 
 Requires [uv](https://docs.astral.sh/uv/) and Python ≥ 3.13.
