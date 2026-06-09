@@ -21,6 +21,7 @@ from experiment.analysis import (
     fit_lcp,
     type_distribution,
 )
+from experiment.figures import ProbResult, disaster_prob_sweep, plot_fig4
 
 __all__ = [
     "AgentConfig",
@@ -37,4 +38,7 @@ __all__ = [
     "classify_lcp",
     "classify_session",
     "type_distribution",
+    "ProbResult",
+    "disaster_prob_sweep",
+    "plot_fig4",
 ]

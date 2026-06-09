@@ -19,6 +19,7 @@ coop-disaster = "coop_disaster.__main__:main"
 spatial-run = "spatial.run:main"
 spatial-analysis = "spatial.analysis:main"
 experiment-run = "experiment.run:main"
+experiment-fig4 = "experiment.figures:main"
 
 [dependency-groups]
 dev = [
