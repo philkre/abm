@@ -244,53 +244,74 @@ def _build_parser() -> argparse.ArgumentParser:
     # Defaults come from DEFAULT_AGENT_CONFIG so CLI and API stay in sync.
     d = DEFAULT_AGENT_CONFIG
     p.add_argument(
-        "--contrib-init",
+        "--g-lo",
         type=float,
-        default=d.contrib_init,
+        default=d.g_lo,
         metavar="F",
-        help="initial contribution per agent (MU)",
+        help="lower bound of the generosity draw (MU)",
     )
     p.add_argument(
-        "--aspiration-lo",
+        "--g-hi",
         type=float,
-        default=d.aspiration_lo,
+        default=d.g_hi,
         metavar="F",
-        help="lower bound of per-agent initial aspiration",
+        help="upper bound of the generosity draw (MU)",
     )
     p.add_argument(
-        "--aspiration-hi",
+        "--m-lo",
         type=float,
-        default=d.aspiration_hi,
+        default=d.m_lo,
         metavar="F",
-        help="upper bound of per-agent initial aspiration",
+        help="lower bound of the conformity draw",
     )
     p.add_argument(
-        "--aspiration-alpha",
+        "--m-hi",
         type=float,
-        default=d.aspiration_alpha,
+        default=d.m_hi,
         metavar="F",
-        help="aspiration learning rate",
+        help="upper bound of the conformity draw",
     )
     p.add_argument(
-        "--contrib-delta",
+        "--bias",
         type=float,
-        default=d.contrib_delta,
+        default=d.bias,
         metavar="F",
-        help="safe-round contribution step size (MU)",
+        help="self-serving downward bias on the social anchor (MU)",
     )
     p.add_argument(
-        "--delta-up",
+        "--anchor-margin",
         type=float,
-        default=d.delta_up,
+        default=d.anchor_margin,
         metavar="F",
-        help="upward step after a disaster (MU)",
+        help="safety factor on the fair-share anchor",
     )
     p.add_argument(
-        "--disaster-penalty",
+        "--theta-init",
         type=float,
-        default=d.disaster_penalty,
+        default=d.theta_init,
         metavar="F",
-        help="bounded negative learning signal on a disaster round",
+        help="initial threat salience when any risk exists",
+    )
+    p.add_argument(
+        "--theta-bump",
+        type=float,
+        default=d.theta_bump,
+        metavar="F",
+        help="salience increment after a failed check (1-round lag)",
+    )
+    p.add_argument(
+        "--theta-decay",
+        type=float,
+        default=d.theta_decay,
+        metavar="F",
+        help="per-round salience decay rate",
+    )
+    p.add_argument(
+        "--noise-sd",
+        type=float,
+        default=d.noise_sd,
+        metavar="F",
+        help="SD of idiosyncratic contribution noise (MU)",
     )
     return p
 
@@ -299,21 +320,24 @@ def main(argv: list[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
 
     agent_cfg = AgentConfig(
-        contrib_init=args.contrib_init,
-        aspiration_lo=args.aspiration_lo,
-        aspiration_hi=args.aspiration_hi,
-        aspiration_alpha=args.aspiration_alpha,
-        contrib_delta=args.contrib_delta,
-        delta_up=args.delta_up,
-        disaster_penalty=args.disaster_penalty,
+        g_lo=args.g_lo,
+        g_hi=args.g_hi,
+        m_lo=args.m_lo,
+        m_hi=args.m_hi,
+        bias=args.bias,
+        anchor_margin=args.anchor_margin,
+        theta_init=args.theta_init,
+        theta_bump=args.theta_bump,
+        theta_decay=args.theta_decay,
+        noise_sd=args.noise_sd,
     )
 
     print(f"Running {args.n_sessions} sessions per treatment...")
     print(
-        f"  Agent config: contrib_init={agent_cfg.contrib_init}  "
-        f"aspiration~U({agent_cfg.aspiration_lo},{agent_cfg.aspiration_hi})  "
-        f"α={agent_cfg.aspiration_alpha}  δ={agent_cfg.contrib_delta}  "
-        f"δ_up={agent_cfg.delta_up}  disaster_penalty={agent_cfg.disaster_penalty}"
+        f"  Agent config: g~U({agent_cfg.g_lo},{agent_cfg.g_hi})  "
+        f"m~U({agent_cfg.m_lo},{agent_cfg.m_hi})  bias={agent_cfg.bias}  "
+        f"θ: init={agent_cfg.theta_init} bump={agent_cfg.theta_bump} "
+        f"decay={agent_cfg.theta_decay}"
     )
     print()
 

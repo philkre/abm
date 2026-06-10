@@ -58,46 +58,59 @@ class TreatmentConfig:
 
 @dataclass(frozen=True)
 class AgentConfig:
-    """Asymmetric aspiration-learning parameters.
+    """Blend-rule parameters (see specs/2026-06-10-blend-rule-design.md).
 
-    Each agent keeps a contribution level and an aspiration (target payoff).
-    After each round (see HouseholdAgent.update):
-      - Disaster this round       → jump contribution up by delta_up
-                                    (the empirical "got burned" response, Fig 5)
-      - Safe & payoff >= aspiration → free-ride a little down by contrib_delta
-      - Safe & payoff <  aspiration → nudge up by contrib_delta
-    Aspiration tracks a moving average of received payoffs.
+    Each round every agent blends three anchors into its next contribution:
 
-    The disaster bump is what differentiates treatments from Control: with no
-    disasters the rule has only the free-ride pull, so Control contributions
-    decline, while disaster risk sustains cooperation near the threshold.
+        c ← clip( w·share + (1-w)·(m·others_mean + (1-m)·g − bias), 0, E )
 
-    Per-agent heterogeneity (the source of the emergent UC/CC/FR type mix):
-    each agent draws its initial aspiration uniformly from
-    [aspiration_lo, aspiration_hi]. A higher aspiration is rarely satisfied →
-    higher sustained contribution → classified UC; a lower aspiration is easily
-    satisfied → free-rides → classified FR.
+    where share = threshold_hi / group_size (worst case under Level
+    uncertainty), and w = s·θ is the threat weight: per-agent sensitivity s
+    times session-level threat salience θ.
+
+    Heterogeneous traits, drawn once per agent:
+      g ~ U(g_lo, g_hi)  — intrinsic generosity (warm glow; also round-1 basis)
+      m ~ U(m_lo, m_hi)  — conformity (weight on matching others)
+      s ~ U(0, 1)        — threat sensitivity
+
+    Threat salience θ (session level, lives on the model):
+      θ_0 = theta_init if disaster_prob > 0 else 0   (existence of risk, not
+            its magnitude — the paper's coarse probability heuristic)
+      failed check → θ += theta_bump, landing one round late (gambler's
+            fallacy; reproduces Fig 5's flat-then-rise)
+      θ decays by (1 - theta_decay) per round (habituation), clipped to [0,1].
+
+    The joint (g, m, s) draw produces the emergent UC/CC/FR mix: high s →
+    flat high LCP line (UC); high m → matching line (CC); low s, m, g →
+    flat low line (FR).
 
     Args:
-        contrib_init: Starting contribution (MU). Paper round-1 average ≈ 12.
-        aspiration_lo: Lower bound of the per-agent initial aspiration draw.
-        aspiration_hi: Upper bound of the per-agent initial aspiration draw.
-        aspiration_alpha: Aspiration update learning rate ∈ (0, 1].
-        contrib_delta: Safe-round step size for contribution adjustment (MU).
-        delta_up: Upward step taken on a disaster round (MU); larger than
-            contrib_delta to reproduce the post-failed-check ratchet (Fig 5).
-        disaster_penalty: Bounded negative learning signal on a disaster round,
-            fed to the aspiration moving average. Decoupled from the (unbounded)
-            cumulative wealth wipeout so one wipeout doesn't crater aspiration.
+        g_lo: Lower bound of the generosity draw (MU).
+        g_hi: Upper bound of the generosity draw (MU).
+        m_lo: Lower bound of the conformity draw.
+        m_hi: Upper bound of the conformity draw.
+        bias: Self-serving downward bias applied to the social anchor (MU).
+        anchor_margin: Safety factor on the fair share (>1 = overshoot the
+            threshold as insurance against others' shortfall; the paper's
+            groups plateau at pot 62-65, above the 60 threshold).
+        theta_init: Initial threat salience when any disaster risk exists.
+        theta_bump: Salience increment after a failed check.
+        theta_decay: Per-round salience decay rate (habituation).
+        noise_sd: SD of idiosyncratic per-round noise (MU). Contributions are
+            rounded to whole units, as in the paper's design ("allocation is
+            in whole units (0, 1, ..., 20)").
     """
 
-    contrib_init: float = 12.0  # paper round-1 mean ≈ 12
-    aspiration_lo: float = 20.0
-    aspiration_hi: float = 36.0
-    aspiration_alpha: float = 0.3
-    contrib_delta: float = 1.0  # step on a safe round (aspiration rule)
-    delta_up: float = 6.0  # step up after a disaster (got-burned response)
-    disaster_penalty: float = 20.0
+    g_lo: float = 4.0
+    g_hi: float = 20.0
+    m_lo: float = 0.1
+    m_hi: float = 1.0
+    bias: float = 0.5
+    anchor_margin: float = 1.15
+    theta_init: float = 0.9
+    theta_bump: float = 0.15
+    theta_decay: float = 0.01
+    noise_sd: float = 2.0
 
 
 # ── Treatment definitions ──────────────────────────────────────────────────

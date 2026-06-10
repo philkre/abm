@@ -1,13 +1,16 @@
 """experiment — ABM replication of Jonsson & Jonsson (2025) experiments.
 
-Agents use aspiration-based learning to adjust contributions across five
-treatments (Control, 10P, 40P, Level, Impact). Types emerge from dynamics
-rather than being pre-classified.
+Agents use a three-anchor blend rule — threshold share (threat-weighted),
+others' previous-round mean (conformity), intrinsic generosity — across five
+treatments (Control, 10P, 40P, Level, Impact). The UC/CC/FR mix arises from
+the joint heterogeneous trait draw (design:
+llm_hints/superpowers/specs/2026-06-10-blend-rule-design.md).
 
 NOTE: the paper reports human experiments and a deterministic LCP projection;
-it contains no behavioural agent model. The asymmetric aspiration learning
-rule here is an original modelling addition of this project, tuned to
-reproduce the paper's aggregate findings (see agents.py).
+it contains no behavioural agent model. The blend rule is an original
+modelling addition built from documented behaviour (conditional cooperation,
+threshold anchoring, threat salience), calibrated to the paper's aggregate
+findings (see agents.py for the honesty note on LCP circularity).
 """
 
 from experiment.config import (

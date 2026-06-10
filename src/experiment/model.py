@@ -6,10 +6,10 @@ Jonsson & Jonsson (2025). Phase order each round:
   1. Contribution — agents play the contribution set last round (or init)
   2. Pool         — sum contributions into the group pot
   3. Check        — with prob `disaster_prob` a threshold check fires
-  4. Payoff       — credit accounts; on a failed check wipe accounts and emit
-                    a bounded negative learning signal
+  4. Payoff       — credit accounts; on a failed check wipe accounts per scope
   5. Collect      — record the round as actually played
-  6. Learning     — agents update contributions via the aspiration rule
+  6. Learning     — agents blend anchors into next round's contribution
+                    (see agents.py); threat salience θ then updates
 
 Accounting (paper): each round the kept endowment (endowment - contribution)
 accrues to the agent's individual account, and the pot × multiplier (1.6)
@@ -18,11 +18,11 @@ session. A failed check wipes the individual accounts and the group account
 (10P/40P/Level), or — in Impact — the individual accounts, the group account,
 or both with probability 1/3 each.
 
-The per-round learning signal (`agent.payoff`) is the experienced round
-earnings (kept endowment + eventual share of this round's pot), or a bounded
-negative penalty on a disaster round. It is identical across 40P and Impact,
-consistent with the paper's finding of no significant contribution difference
-between those treatments; the treatments differ in realised wealth.
+Threat salience θ (session level): starts at theta_init when any disaster
+risk exists; a failed check adds theta_bump with a one-round lag (gambler's
+fallacy — Fig 5 shows no response in the round immediately after a failed
+check, then a rise); decays by (1 - theta_decay) per round. Agents weight
+the threshold anchor by w = s·θ.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ class ExperimentModel(mesa.Model):
 
     Args:
         treatment: Treatment configuration (disaster prob, threshold, etc.).
-        agent_cfg: Aspiration learning parameters shared across agents.
+        agent_cfg: Blend-rule parameters shared across agents.
         seed: RNG seed for reproducibility.
 
     Recorded across the session (for paper-comparable metrics):
@@ -48,8 +48,7 @@ class ExperimentModel(mesa.Model):
         check_passed:   list[bool] — whether pot >= threshold given a check.
 
     The DataCollector collects once per round *after* payoffs but *before*
-    learning, so row i (0-based) is round i+1 exactly as played: contribution
-    played, disaster outcome, post-payoff wealth, start-of-round aspiration.
+    learning, so row i (0-based) is round i+1 exactly as played.
     """
 
     def __init__(
@@ -60,8 +59,13 @@ class ExperimentModel(mesa.Model):
     ) -> None:
         super().__init__(rng=seed)
         self.treatment = treatment
-        self._disaster_penalty = agent_cfg.disaster_penalty
+        self._cfg = agent_cfg
         self.group_account: float = 0.0
+
+        # Threat salience: existence of risk switches it on (before agents,
+        # who read it for their round-1 contribution).
+        self.theta: float = agent_cfg.theta_init if treatment.disaster_prob > 0 else 0.0
+        self._pending_bump: float = 0.0  # failed-check bump, lands next round
 
         for _ in range(treatment.group_size):
             HouseholdAgent(self, treatment, agent_cfg)
@@ -77,7 +81,7 @@ class ExperimentModel(mesa.Model):
                 "group_pot": self._group_pot,
                 "disaster_rate": self._disaster_rate,
                 "mean_wealth": self._mean_wealth,
-                "mean_aspiration": self._mean_aspiration,
+                "theta": lambda m: m.theta,
             }
         )
 
@@ -95,7 +99,7 @@ class ExperimentModel(mesa.Model):
 
         self._payoff_phase(pool, disaster)
         self.datacollector.collect(self)
-        self._learning_phase()
+        self._learning_phase(pool, disaster)
 
     def run(self) -> None:
         """Run the full session (n_rounds steps)."""
@@ -126,10 +130,11 @@ class ExperimentModel(mesa.Model):
         return self.random.choice(("individual", "group", "both"))
 
     def _payoff_phase(self, pool: float, disaster: bool) -> None:
-        """Credit accounts, apply disaster wipes, set the learning signal.
+        """Credit accounts, apply disaster wipes, record round earnings.
 
         Accounts are credited first so that Impact's partial wipes leave this
-        round's earnings in the surviving account.
+        round's earnings in the surviving account. `payoff` is a recorded
+        metric only (the blend rule does not consume it); 0 on a disaster.
         """
         cfg = self.treatment
         share = cfg.multiplier * pool / cfg.group_size
@@ -147,16 +152,28 @@ class ExperimentModel(mesa.Model):
                 self.group_account = 0.0
             for agent in self.agents:
                 agent.disaster = True
-                agent.payoff = -self._disaster_penalty
+                agent.payoff = 0.0
         else:
             for agent in self.agents:
                 agent.disaster = False
                 agent.payoff = (cfg.endowment - agent.contribution) + share
 
-    def _learning_phase(self) -> None:
-        """All agents update contributions simultaneously (synchronous)."""
+    def _learning_phase(self, pool: float, disaster: bool) -> None:
+        """Agents blend anchors (synchronous), then θ updates.
+
+        The failed-check bump is queued and applied only *after* next round's
+        contribution is set, so the response lands two rounds after the check
+        (Fig 5: flat at +1, rise at +2).
+        """
+        n = self.treatment.group_size
         for agent in self.agents:
-            agent.update()
+            others_mean = (pool - agent.contribution) / (n - 1)
+            agent.update(others_mean, self.theta)
+
+        self.theta = min(
+            1.0, self.theta * (1.0 - self._cfg.theta_decay) + self._pending_bump
+        )
+        self._pending_bump = self._cfg.theta_bump if disaster else 0.0
 
     # ── DataCollector reporters ────────────────────────────────────────────
 
@@ -173,7 +190,3 @@ class ExperimentModel(mesa.Model):
     def _mean_wealth(self) -> float:
         agents = list(self.agents)
         return sum(a.wealth for a in agents) / len(agents)
-
-    def _mean_aspiration(self) -> float:
-        agents = list(self.agents)
-        return sum(a.aspiration for a in agents) / len(agents)
