@@ -3,6 +3,11 @@
 Agents use aspiration-based learning to adjust contributions across five
 treatments (Control, 10P, 40P, Level, Impact). Types emerge from dynamics
 rather than being pre-classified.
+
+NOTE: the paper reports human experiments and a deterministic LCP projection;
+it contains no behavioural agent model. The asymmetric aspiration learning
+rule here is an original modelling addition of this project, tuned to
+reproduce the paper's aggregate findings (see agents.py).
 """
 
 from experiment.config import (

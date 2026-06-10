@@ -30,7 +30,6 @@ from experiment.config import (
 )
 from experiment.model import ExperimentModel
 
-
 # ── Results container ────────────────────────────────────────────────────────
 
 
@@ -66,6 +65,9 @@ def run_sessions(
         agent_cfg: Aspiration learning parameters.
         n_sessions: Number of independent group sessions to average over.
         base_seed: Base RNG seed; session i uses base_seed + i.
+
+    The returned DataFrame is indexed by round (1..n_rounds); each row is the
+    round exactly as played (contribution played that round, disaster outcome).
     """
     all_dfs: list[pd.DataFrame] = []
     all_records: list[list[list[float]]] = []
@@ -78,12 +80,12 @@ def run_sessions(
         all_dfs.append(model.datacollector.get_model_vars_dataframe())
         all_records.append(model.contrib_record)
         n_fired += sum(model.check_fired)
-        n_passed += sum(
-            p for f, p in zip(model.check_fired, model.check_passed) if f
-        )
+        n_passed += sum(p for f, p in zip(model.check_fired, model.check_passed) if f)
 
     stacked = pd.concat(all_dfs)
     df = stacked.groupby(stacked.index).mean()
+    df.index = df.index + 1  # collector rows are 0-based; label as rounds 1..n
+    df.index.name = "round"
     pass_rate = (n_passed / n_fired) if n_fired else float("nan")
     type_dist = type_distribution(all_records, treatment.endowment)
     return TreatmentResults(df=df, pass_rate=pass_rate, type_dist=type_dist)
@@ -118,9 +120,13 @@ _PAPER_TYPE_DIST = {
     # Treatments (pooled) in the paper:
     "_treatments": {"UC": 0.56, "CC": 0.36, "FR": 0.04, "Uncategorized": 0.04},
 }
-_PAPER_PASS_RATE = 0.58            # "in 58% of the threshold checks groups succeeded"
-_PAPER_CONTRIB = {                  # Fig 3A mean individual contribution
-    "Control": 12.0, "10P": 14.9, "40P": 15.1, "Impact": 14.8, "Level": 16.5,
+_PAPER_PASS_RATE = 0.58  # "in 58% of the threshold checks groups succeeded"
+_PAPER_CONTRIB = {  # Fig 3A mean individual contribution
+    "Control": 12.0,
+    "10P": 14.9,
+    "40P": 15.1,
+    "Impact": 14.8,
+    "Level": 16.5,
 }
 
 
@@ -192,8 +198,9 @@ def plot_results(results: dict[str, TreatmentResults], output: Path) -> None:
     width = 0.8 / max(len(names), 1)
     for k, name in enumerate(names):
         vals = [results[name].type_dist[t] for t in TYPES]
-        ax3.bar(x + k * width, vals, width, label=name,
-                color=_COLOURS.get(name, "black"))
+        ax3.bar(
+            x + k * width, vals, width, label=name, color=_COLOURS.get(name, "black")
+        )
     ax3.set_xticks(x + width * (len(names) - 1) / 2)
     ax3.set_xticklabels(TYPES)
     ax3.set_ylabel("Proportion of agents")
@@ -216,28 +223,75 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Run the experiment ABM across all five treatments.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--n-sessions", type=int, default=200, metavar="N",
-                   help="independent sessions per treatment")
-    p.add_argument("--seed", type=int, default=42, metavar="N",
-                   help="base RNG seed")
-    p.add_argument("--output", type=Path, default=Path("experiment_results.png"),
-                   metavar="FILE", help="output plot path")
-    p.add_argument("--no-plot", action="store_true",
-                   help="skip plot, print tables only")
-    p.add_argument("--contrib-init", type=float, default=12.0, metavar="F",
-                   help="initial contribution per agent (MU)")
-    p.add_argument("--aspiration-lo", type=float, default=18.0, metavar="F",
-                   help="lower bound of per-agent initial aspiration")
-    p.add_argument("--aspiration-hi", type=float, default=30.0, metavar="F",
-                   help="upper bound of per-agent initial aspiration")
-    p.add_argument("--aspiration-alpha", type=float, default=0.2, metavar="F",
-                   help="aspiration learning rate")
-    p.add_argument("--contrib-delta", type=float, default=1.0, metavar="F",
-                   help="safe-round contribution step size (MU)")
-    p.add_argument("--delta-up", type=float, default=6.0, metavar="F",
-                   help="upward step after a disaster (MU)")
-    p.add_argument("--disaster-penalty", type=float, default=20.0, metavar="F",
-                   help="bounded negative learning signal on a disaster round")
+    p.add_argument(
+        "--n-sessions",
+        type=int,
+        default=200,
+        metavar="N",
+        help="independent sessions per treatment",
+    )
+    p.add_argument("--seed", type=int, default=42, metavar="N", help="base RNG seed")
+    p.add_argument(
+        "--output",
+        type=Path,
+        default=Path("experiment_results.png"),
+        metavar="FILE",
+        help="output plot path",
+    )
+    p.add_argument(
+        "--no-plot", action="store_true", help="skip plot, print tables only"
+    )
+    # Defaults come from DEFAULT_AGENT_CONFIG so CLI and API stay in sync.
+    d = DEFAULT_AGENT_CONFIG
+    p.add_argument(
+        "--contrib-init",
+        type=float,
+        default=d.contrib_init,
+        metavar="F",
+        help="initial contribution per agent (MU)",
+    )
+    p.add_argument(
+        "--aspiration-lo",
+        type=float,
+        default=d.aspiration_lo,
+        metavar="F",
+        help="lower bound of per-agent initial aspiration",
+    )
+    p.add_argument(
+        "--aspiration-hi",
+        type=float,
+        default=d.aspiration_hi,
+        metavar="F",
+        help="upper bound of per-agent initial aspiration",
+    )
+    p.add_argument(
+        "--aspiration-alpha",
+        type=float,
+        default=d.aspiration_alpha,
+        metavar="F",
+        help="aspiration learning rate",
+    )
+    p.add_argument(
+        "--contrib-delta",
+        type=float,
+        default=d.contrib_delta,
+        metavar="F",
+        help="safe-round contribution step size (MU)",
+    )
+    p.add_argument(
+        "--delta-up",
+        type=float,
+        default=d.delta_up,
+        metavar="F",
+        help="upward step after a disaster (MU)",
+    )
+    p.add_argument(
+        "--disaster-penalty",
+        type=float,
+        default=d.disaster_penalty,
+        metavar="F",
+        help="bounded negative learning signal on a disaster round",
+    )
     return p
 
 
@@ -255,10 +309,12 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     print(f"Running {args.n_sessions} sessions per treatment...")
-    print(f"  Agent config: contrib_init={agent_cfg.contrib_init}  "
-          f"aspiration~U({agent_cfg.aspiration_lo},{agent_cfg.aspiration_hi})  "
-          f"α={agent_cfg.aspiration_alpha}  δ={agent_cfg.contrib_delta}  "
-          f"δ_up={agent_cfg.delta_up}  disaster_penalty={agent_cfg.disaster_penalty}")
+    print(
+        f"  Agent config: contrib_init={agent_cfg.contrib_init}  "
+        f"aspiration~U({agent_cfg.aspiration_lo},{agent_cfg.aspiration_hi})  "
+        f"α={agent_cfg.aspiration_alpha}  δ={agent_cfg.contrib_delta}  "
+        f"δ_up={agent_cfg.delta_up}  disaster_penalty={agent_cfg.disaster_penalty}"
+    )
     print()
 
     results = run_all_treatments(agent_cfg, args.n_sessions, args.seed)

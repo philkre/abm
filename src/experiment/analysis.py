@@ -61,7 +61,7 @@ def classify_lcp(alpha: float, beta: float, endowment: float = 20.0) -> str:
         return "FR"
     if lo >= half:
         return "UC"
-    if beta > 0.0:          # crosses half with a positive slope
+    if beta > 0.0:  # crosses half with a positive slope
         return "CC"
     return "Uncategorized"
 
@@ -87,9 +87,9 @@ def classify_session(
 
     n_rounds, n_agents = mat.shape
     labels: list[str] = []
-    total = mat.sum(axis=1)                       # group pot per round
+    total = mat.sum(axis=1)  # group pot per round
     for j in range(n_agents):
-        own = mat[1:, j]                          # y_t, t = 1..T-1
+        own = mat[1:, j]  # y_t, t = 1..T-1
         others_prev = (total[:-1] - mat[:-1, j]) / (n_agents - 1)  # x_{t-1}
         alpha, beta = fit_lcp(own, others_prev)
         labels.append(classify_lcp(alpha, beta, endowment))

@@ -4,8 +4,10 @@ Replicates the five treatments from Jonsson & Jonsson (2025):
   Control  — no disaster risk
   10P      — 10% disaster check probability
   40P      — 40% disaster check probability  (main treatment)
-  Level    — 40% check, threshold drawn uniformly from [50, 70] each check
-  Impact   — 40% check, same mechanics as 40P (different framing in paper)
+  Level    — 40% check, integer threshold drawn from [50, 70] each check
+  Impact   — 40% check; on a failed check the individual accounts, the group
+             account, or both are wiped (probability 1/3 each), instead of
+             always both as in 10P/40P/Level
 """
 
 from __future__ import annotations
@@ -26,23 +28,32 @@ class TreatmentConfig:
         n_rounds: Rounds per session (20 in the paper's experiment).
         group_size: Players per group (4 in the paper).
         endowment: Per-player per-round endowment in MU.
+        multiplier: Public-good multiplier applied to the pot.
+        random_impact: If True (Impact treatment), a failed check wipes the
+            individual accounts, the group account, or both with probability
+            1/3 each; otherwise a failed check always wipes both.
     """
 
     name: str
     disaster_prob: float
     threshold: float = 60.0
-    threshold_lo: float = 60.0   # used only when threshold_lo != threshold_hi
+    threshold_lo: float = 60.0  # used only when threshold_lo != threshold_hi
     threshold_hi: float = 60.0
     n_rounds: int = 20
     group_size: int = 4
     endowment: float = 20.0
-    multiplier: float = 1.6      # public-good multiplier (paper: pot ×1.6, split 4 ways)
+    multiplier: float = 1.6  # public-good multiplier (paper: pot ×1.6, split 4 ways)
+    random_impact: bool = False  # Impact: wipe individual/group/both w.p. 1/3 each
 
     def sample_threshold(self, rng) -> float:
-        """Return the active threshold for one disaster check."""
+        """Return the active threshold for one disaster check.
+
+        Level draws an integer uniformly from [threshold_lo, threshold_hi]
+        (inclusive), as in the paper ("any integer value in 50 to 70 units").
+        """
         if self.threshold_lo == self.threshold_hi:
             return self.threshold
-        return rng.uniform(self.threshold_lo, self.threshold_hi)
+        return float(rng.randint(int(self.threshold_lo), int(self.threshold_hi)))
 
 
 @dataclass(frozen=True)
@@ -80,12 +91,12 @@ class AgentConfig:
             cumulative wealth wipeout so one wipeout doesn't crater aspiration.
     """
 
-    contrib_init: float = 12.0          # paper round-1 mean ≈ 12
+    contrib_init: float = 12.0  # paper round-1 mean ≈ 12
     aspiration_lo: float = 20.0
     aspiration_hi: float = 36.0
     aspiration_alpha: float = 0.3
-    contrib_delta: float = 1.0          # step on a safe round (aspiration rule)
-    delta_up: float = 6.0               # step up after a disaster (got-burned response)
+    contrib_delta: float = 1.0  # step on a safe round (aspiration rule)
+    delta_up: float = 6.0  # step up after a disaster (got-burned response)
     disaster_penalty: float = 20.0
 
 
@@ -114,6 +125,7 @@ TREATMENTS: dict[str, TreatmentConfig] = {
     "Impact": TreatmentConfig(
         name="Impact",
         disaster_prob=0.4,
+        random_impact=True,
     ),
 }
 

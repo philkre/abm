@@ -1,8 +1,16 @@
 """Household agent with aspiration-based contribution learning.
 
-Decision rule (aspiration learning), evaluated each round after payoffs:
-  - If payoff <  aspiration → increase contribution by delta (avert disaster)
-  - If payoff >= aspiration → decrease contribution by delta (exploit safety)
+NOTE: the aspiration learning rule is an *original modelling addition* of this
+project, not part of Jonsson & Jonsson (2025). The paper reports human
+experiments; we need a behavioural rule for simulated agents, and asymmetric
+aspiration learning is our choice, tuned to reproduce the paper's aggregate
+findings.
+
+Decision rule (asymmetric aspiration learning), evaluated after payoffs:
+  - Disaster this round           → jump contribution up by delta_up
+                                    ("got burned" response, cf. paper Fig 5)
+  - Safe, payoff >= aspiration    → decrease contribution by delta (free-ride)
+  - Safe, payoff <  aspiration    → increase contribution by delta
   Aspiration updates as a moving average:  A ← (1-α)·A + α·payoff
 
 Heterogeneity: each agent draws its initial aspiration from
@@ -26,7 +34,7 @@ class HouseholdAgent(mesa.Agent):
 
     Attributes:
         contribution: Amount contributed to the group pot this round.
-        wealth: Accumulated private earnings across rounds (zeroed on disaster).
+        indiv_account: Accumulated private earnings (endowment - contribution).
         aspiration: Current aspiration level (moving avg of payoffs).
         payoff: Net payoff received this round (set by model).
         disaster: Whether this agent suffered a disaster loss this round.
@@ -48,9 +56,17 @@ class HouseholdAgent(mesa.Agent):
         self.aspiration: float = model.random.uniform(
             agent_cfg.aspiration_lo, agent_cfg.aspiration_hi
         )
-        self.wealth: float = 0.0
+        self.indiv_account: float = 0.0
         self.payoff: float = 0.0
         self.disaster: bool = False
+
+    @property
+    def wealth(self) -> float:
+        """Total earnings as if the group account were split now (paper:
+        the group account is divided evenly at the end of the session)."""
+        return (
+            self.indiv_account + self.model.group_account / self._treatment.group_size
+        )
 
     # ── called by model after payoff_phase ────────────────────────────────
 
@@ -65,7 +81,7 @@ class HouseholdAgent(mesa.Agent):
 
         Without disasters (Control) the rule has only the free-ride pull, so
         contributions decline; disaster risk is what sustains cooperation.
-        Aspiration tracks a moving average of payoffs.
+        Aspiration tracks a moving average of received payoffs.
         """
         E = self._treatment.endowment
         if self.disaster:
@@ -76,5 +92,5 @@ class HouseholdAgent(mesa.Agent):
             self.contribution = min(E, self.contribution + self._delta)
 
         self.aspiration = (
-            (1.0 - self._alpha) * self.aspiration + self._alpha * self.payoff
-        )
+            1.0 - self._alpha
+        ) * self.aspiration + self._alpha * self.payoff

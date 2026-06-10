@@ -90,8 +90,7 @@ def test_classify_session_constant_high_is_uc():
 def test_type_distribution_sums_to_one():
     rng = np.random.default_rng(1)
     sessions = [
-        [[rng.uniform(0, 20) for _ in range(4)] for _ in range(20)]
-        for _ in range(5)
+        [[rng.uniform(0, 20) for _ in range(4)] for _ in range(20)] for _ in range(5)
     ]
     dist = type_distribution(sessions, E)
     assert set(dist) == {"UC", "CC", "FR", "Uncategorized"}

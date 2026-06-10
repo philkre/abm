@@ -58,10 +58,11 @@ def disaster_prob_sweep(
     """Run the model across disaster probabilities; return per-prob results."""
     out: dict[float, ProbResult] = {}
     for p in probs:
-        treatment = TreatmentConfig(f"{int(p * 100)}%", disaster_prob=p,
-                                    threshold=threshold)
-        session_means: list[float] = []   # per-session mean over rounds
-        trends: list[list[float]] = []     # per-session round-by-round mean
+        treatment = TreatmentConfig(
+            f"{int(p * 100)}%", disaster_prob=p, threshold=threshold
+        )
+        session_means: list[float] = []  # per-session mean over rounds
+        trends: list[list[float]] = []  # per-session round-by-round mean
         fired = passed = 0
         for i in range(n_sessions):
             m = ExperimentModel(treatment, agent_cfg, seed=base_seed + i)
@@ -87,8 +88,9 @@ def disaster_prob_sweep(
 _BLUES = ["#0b1f3a", "#1f4e79", "#3f7cb0", "#7fb0d6", "#bcd6ec"]
 
 
-def plot_fig4(results: dict[float, ProbResult], output: Path,
-              show_paper: bool = True) -> None:
+def plot_fig4(
+    results: dict[float, ProbResult], output: Path, show_paper: bool = True
+) -> None:
     """Two-panel Fig-4 reproduction (bars+CI; round-by-round trend)."""
     probs = list(results)
     labels = [f"{int(p * 100)}%" for p in probs]
@@ -100,12 +102,12 @@ def plot_fig4(results: dict[float, ProbResult], output: Path,
     x = np.arange(len(probs))
     means = [results[p].grand_mean for p in probs]
     cis = [results[p].ci95 for p in probs]
-    axA.bar(x, means, yerr=cis, capsize=4, color=colours, edgecolor="black",
-            linewidth=0.5)
+    axA.bar(
+        x, means, yerr=cis, capsize=4, color=colours, edgecolor="black", linewidth=0.5
+    )
     if show_paper:
         paper = [_PAPER_FIG4A.get(p, np.nan) for p in probs]
-        axA.plot(x, paper, "o--", color="crimson", lw=1.5, ms=6,
-                 label="paper Fig 4A")
+        axA.plot(x, paper, "o--", color="crimson", lw=1.5, ms=6, label="paper Fig 4A")
         axA.legend(loc="lower right", fontsize=9)
     axA.set_xticks(x)
     axA.set_xticklabels(labels)
@@ -118,8 +120,9 @@ def plot_fig4(results: dict[float, ProbResult], output: Path,
     for p, colour in zip(probs, colours):
         trend = results[p].trend
         rounds = np.arange(1, len(trend) + 1)
-        axB.plot(rounds, trend, marker="o", ms=3, color=colour,
-                 label=f"{int(p * 100)}%")
+        axB.plot(
+            rounds, trend, marker="o", ms=3, color=colour, label=f"{int(p * 100)}%"
+        )
     axB.set_xlabel("Round")
     axB.set_ylabel("Mean of individual contributions")
     axB.set_ylim(0, 20)
@@ -144,8 +147,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--n-sessions", type=int, default=500, metavar="N")
     p.add_argument("--seed", type=int, default=1000, metavar="N")
     p.add_argument("--output", type=Path, default=Path("fig4.png"), metavar="FILE")
-    p.add_argument("--no-paper", action="store_true",
-                   help="omit the paper reference overlay")
+    p.add_argument(
+        "--no-paper", action="store_true", help="omit the paper reference overlay"
+    )
     return p
 
 

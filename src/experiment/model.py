@@ -6,15 +6,23 @@ Jonsson & Jonsson (2025). Phase order each round:
   1. Contribution — agents play the contribution set last round (or init)
   2. Pool         — sum contributions into the group pot
   3. Check        — with prob `disaster_prob` a threshold check fires
-  4. Payoff       — round earnings = (endowment - contribution) + public-good
-                    share (multiplier · pot / group_size). On a failed check
-                    (disaster) cumulative wealth is wiped to zero and the
-                    learning signal is a bounded negative penalty.
-  5. Learning     — agents update contributions via the aspiration rule
+  4. Payoff       — credit accounts; on a failed check wipe accounts and emit
+                    a bounded negative learning signal
+  5. Collect      — record the round as actually played
+  6. Learning     — agents update contributions via the aspiration rule
 
-Payoff model (paper): the pot is multiplied by `multiplier` (1.6) and split
-evenly across the group, so each agent receives `multiplier · pot / n`.
-A disaster (failed check) zeroes cumulative individual + group earnings.
+Accounting (paper): each round the kept endowment (endowment - contribution)
+accrues to the agent's individual account, and the pot × multiplier (1.6)
+accrues to a shared group account that is divided evenly at the end of the
+session. A failed check wipes the individual accounts and the group account
+(10P/40P/Level), or — in Impact — the individual accounts, the group account,
+or both with probability 1/3 each.
+
+The per-round learning signal (`agent.payoff`) is the experienced round
+earnings (kept endowment + eventual share of this round's pot), or a bounded
+negative penalty on a disaster round. It is identical across 40P and Impact,
+consistent with the paper's finding of no significant contribution difference
+between those treatments; the treatments differ in realised wealth.
 """
 
 from __future__ import annotations
@@ -38,6 +46,10 @@ class ExperimentModel(mesa.Model):
         contrib_record: list[list[float]] — contributions played each round.
         check_fired:    list[bool] — whether a threshold check fired each round.
         check_passed:   list[bool] — whether pot >= threshold given a check.
+
+    The DataCollector collects once per round *after* payoffs but *before*
+    learning, so row i (0-based) is round i+1 exactly as played: contribution
+    played, disaster outcome, post-payoff wealth, start-of-round aspiration.
     """
 
     def __init__(
@@ -49,6 +61,7 @@ class ExperimentModel(mesa.Model):
         super().__init__(rng=seed)
         self.treatment = treatment
         self._disaster_penalty = agent_cfg.disaster_penalty
+        self.group_account: float = 0.0
 
         for _ in range(treatment.group_size):
             HouseholdAgent(self, treatment, agent_cfg)
@@ -67,7 +80,6 @@ class ExperimentModel(mesa.Model):
                 "mean_aspiration": self._mean_aspiration,
             }
         )
-        self.datacollector.collect(self)
 
     # ── Mesa interface ─────────────────────────────────────────────────────
 
@@ -82,8 +94,8 @@ class ExperimentModel(mesa.Model):
         self.check_passed.append(passed)
 
         self._payoff_phase(pool, disaster)
-        self._learning_phase()
         self.datacollector.collect(self)
+        self._learning_phase()
 
     def run(self) -> None:
         """Run the full session (n_rounds steps)."""
@@ -107,26 +119,39 @@ class ExperimentModel(mesa.Model):
         threshold = cfg.sample_threshold(self.random)
         return True, pool >= threshold
 
-    def _payoff_phase(self, pool: float, disaster: bool) -> None:
-        """Round earnings incl. public-good share; wipe wealth on disaster.
+    def _disaster_scope(self) -> str:
+        """Which accounts a failed check wipes: 'individual'/'group'/'both'."""
+        if not self.treatment.random_impact:
+            return "both"
+        return self.random.choice(("individual", "group", "both"))
 
-        Non-disaster: payoff = (endowment - contribution) + multiplier·pot/n,
-        added to cumulative wealth.
-        Disaster:     cumulative wealth wiped to 0; learning signal = bounded
-        negative penalty (decoupled from the unbounded wealth loss so a single
-        wipeout doesn't crater the aspiration moving average for many rounds).
+    def _payoff_phase(self, pool: float, disaster: bool) -> None:
+        """Credit accounts, apply disaster wipes, set the learning signal.
+
+        Accounts are credited first so that Impact's partial wipes leave this
+        round's earnings in the surviving account.
         """
         cfg = self.treatment
         share = cfg.multiplier * pool / cfg.group_size
+
+        self.group_account += cfg.multiplier * pool
         for agent in self.agents:
-            agent.disaster = disaster
-            if disaster:
-                agent.wealth = 0.0
+            agent.indiv_account += cfg.endowment - agent.contribution
+
+        if disaster:
+            scope = self._disaster_scope()
+            if scope in ("individual", "both"):
+                for agent in self.agents:
+                    agent.indiv_account = 0.0
+            if scope in ("group", "both"):
+                self.group_account = 0.0
+            for agent in self.agents:
+                agent.disaster = True
                 agent.payoff = -self._disaster_penalty
-            else:
-                round_earnings = (cfg.endowment - agent.contribution) + share
-                agent.wealth += round_earnings
-                agent.payoff = round_earnings
+        else:
+            for agent in self.agents:
+                agent.disaster = False
+                agent.payoff = (cfg.endowment - agent.contribution) + share
 
     def _learning_phase(self) -> None:
         """All agents update contributions simultaneously (synchronous)."""
