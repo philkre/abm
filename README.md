@@ -147,6 +147,69 @@ df = model.datacollector.get_model_vars_dataframe()
 
 ---
 
+## Spatial EPGG with environmental feedback (src/epgg/)
+
+Baseline reproduction of **Ding et al. (2024)**, *Chaos* 34, 123138
+([doi:10.1063/5.0242366](https://doi.org/10.1063/5.0242366)): an L×L lattice
+where every residence carries an environmental health index (EHI ∈ [−1, 1]).
+Cooperators repair the local environment (rate δ), defectors degrade it
+(rate γ); payoffs scale with the local EHI rather than a pooled contribution.
+Strategies evolve fast (Fermi rule, L² updates per generation) while the EHI
+updates once per generation — the slow/fast timescale split that drives every
+result. Pure NumPy + Numba (not Mesa): the hot loop is too large for a per-agent
+object model.
+
+Design notes: `llm_hints/superpowers/specs/2026-06-16-ding-epgg-baseline-design.md`.
+
+```
+src/epgg/
+  lattice.py   # neighbor_indices() — precomputed periodic von Neumann indices
+  kernel.py    # closed_sum, cooperator_counts, update_ehi, benefit_field,
+               #   fermi_sweep (@njit) — the core per-generation operators
+  model.py     # run_to_stationarity() — one session + mean-stabilization stop
+  sweep.py     # coop_fraction_at(), delta_sweep() — ensemble averaging
+  figures.py   # run_fig2(), plot_delta_sweep() — Fig 2 validation gate
+```
+
+Two neighborhoods, never conflated: the **open** 4-neighborhood selects the
+Fermi imitation target; the **closed** 5-node neighborhood (self + 4) drives the
+payoff sum and the EHI feedback.
+
+**Run the Fig 2 gate** (cooperation vs δ at γ=0.04, r=4, c=1):
+
+```bash
+uv run epgg-fig2                                   # full gate, L=200
+uv run epgg-fig2 --n-repeats 5 --output fig2.png   # → fig2.png + fig2.npz
+```
+
+**Use as a library:**
+
+```python
+from epgg import run_to_stationarity, delta_sweep
+
+res = run_to_stationarity(L=200, delta=0.021, gamma=0.04, seed=1)
+print(res.coop_fraction)          # → ~1.0 (C phase)
+
+fracs = delta_sweep([0.02, 0.05, 0.1], gamma=0.04, L=200, n_repeats=5)
+```
+
+**Key parameters:**
+
+| Param | Baseline | Description |
+|-------|----------|-------------|
+| `L` | 200 | Lattice side. The C phase **only exists near L=200** — clusters cannot survive the early defector bottleneck on smaller lattices. |
+| `delta` | swept | Cooperator EHI repair rate. |
+| `gamma` | 0.04 | Defector EHI destruction rate. |
+| `r` | 4 | Environmental-benefit scaling (linear, *not* a pooling multiplier). |
+| `c` | 1 | Per-game cooperation cost (flat 5c per cooperator). |
+| `K` | 0.5 | Fermi noise. |
+
+**Validation:** matches Fig 3 — at δ=0.021, γ=0.04, L=200 the model reproduces
+the defector peak (~gen 20) → slow cooperator recovery → full C (→1.0 by
+~gen 2600), and the counterintuitive δ-trend (rising δ *lowers* cooperation:
+δ=0.021→1.0, δ=0.05→~0.4). Fig 2 δ-sweep gate passed: D → C → C+D with two
+discontinuous transitions.
+
 ## Python notebooks
 
 **Setup** ([uv](https://docs.astral.sh/uv/) required):

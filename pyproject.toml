@@ -18,6 +18,7 @@ dependencies = [
 coop-disaster = "coop_disaster.__main__:main"
 spatial-run = "spatial.run:main"
 spatial-analysis = "spatial.analysis:main"
+epgg-fig2 = "epgg.figures:main"
 
 [dependency-groups]
 dev = [
@@ -30,5 +31,9 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/coop_disaster", "src/condcoop", "src/spatial"]
+packages = ["src/coop_disaster", "src/condcoop", "src/spatial", "src/epgg"]
