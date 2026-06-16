@@ -23,6 +23,12 @@ class ModelConfig:
         mu: Per-agent mutation probability each step.
         n_steps: Default number of simulation steps for run.py.
         seed: RNG seed (passed to Mesa's Model for full reproducibility).
+        env_initial: environmental health index (EHI) at t=0.
+        env_min: lower bound of EHI.
+        env_max: upper bound of EHI.
+        env_delta: increase in EHI per cooperator in neighborhood.
+        env_gamma: decrease in EHI per defector in neighborhood.
+        env_r: scales payoff.
     """
 
     grid_size: int = 20
@@ -38,6 +44,14 @@ class ModelConfig:
     mu: float = 0.001
     n_steps: int = 500
     seed: int = 42
+    
+    # environmental feedback
+    env_initial: float = 0.0
+    env_min: float = -1.0
+    env_max: float = 1.0
+    env_delta: float = 0.021
+    env_gamma: float = 0.04
+    env_r: float = 4.0
 
     def __post_init__(self) -> None:
         if self.initial_uc_fraction + self.initial_cc_fraction > 1.0:

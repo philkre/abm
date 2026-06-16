@@ -41,6 +41,9 @@ class SpatialCollectiveRiskModel(mesa.Model):
         super().__init__(rng=config.seed)
         self.config = config
 
+        # local EHI at each side using agent.unique_id, e_i
+        self.ehi: dict[int, float] = {}
+
         self.grid = OrthogonalVonNeumannGrid(
             (config.grid_size, config.grid_size),
             torus=True,
@@ -67,6 +70,9 @@ class SpatialCollectiveRiskModel(mesa.Model):
                 initial_contribution=config.contribution,
             )
             agent.cell = cell
+
+            # initial EHI: e_i(0)
+            self.ehi[agent.unique.id] = config.env_initial
 
         self._pools: dict[int, float] = {}
 
