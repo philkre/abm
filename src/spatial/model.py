@@ -83,6 +83,7 @@ class SpatialCollectiveRiskModel(mesa.Model):
                 "cooperation_rate": self._cooperation_rate,
                 "mean_wealth": self._mean_wealth,
                 "disaster_rate": self._disaster_rate,
+                "mean_ehi": self._mean_ehi,
             }
         )
         self.datacollector.collect(self)
@@ -99,6 +100,7 @@ class SpatialCollectiveRiskModel(mesa.Model):
         self._strategy_update_phase()
         self._mutation_phase()
         self._update_prev_contributions_phase()
+        self._environmental_update_phase()
         self.datacollector.collect(self)
 
     # ------------------------------------------------------------------
@@ -148,6 +150,12 @@ class SpatialCollectiveRiskModel(mesa.Model):
         cfg = self.config
         for agent in self.agents:
             wealth_before = agent.wealth
+            
+            # enviromental benefit
+            env_sum = sum(self.ehi[m.unique_id] for m in self._focal_group(agent))
+            env_benefit = cfg.env_r * env_sum
+            agent.wealth += env_benefit
+
             agent.wealth += cfg.income           # receive round endowment
             agent.wealth -= agent.contribution
             if agent.disaster:
@@ -186,6 +194,27 @@ class SpatialCollectiveRiskModel(mesa.Model):
         for agent in self.agents:
             agent.prev_contribution = agent.contribution
 
+    def _environmental_update_phase(self) -> None:
+        """Update EHI based on number of cooperators and defectors in the neighborhood."""
+        cfg = self.config
+        
+        new_ehi: dict[int, float] = {}
+        for agent in self.agents:
+            neighborhood = self._focal_group(agent)
+
+            # environment update eq
+            n_C = sum(m.strategy != "D" for m in neighborhood)
+            n_D = sum(m.startegy == "D" for m in neighborhood)
+            e_old = self.ehi[agent.unique_id]
+            e_new = e_old + n_C * cfg.env_delta + n_D * cfg.env_gamma
+
+            # bound [-1, 1]
+            e_new = max(cfg.env_min, min(cfg.env_max, e_new))
+            new_ehi[agent.unique_id] = e_new
+
+        self.ehi = new_ehi
+
+
     # ------------------------------------------------------------------
     # DataCollector reporters
     # ------------------------------------------------------------------
@@ -210,3 +239,6 @@ class SpatialCollectiveRiskModel(mesa.Model):
     def _disaster_rate(self) -> float:
         agents = list(self.agents)
         return sum(a.disaster for a in agents) / len(agents)
+    
+    def _mean_ehi(self) -> float:
+        return sum(self.ehi.values() / len(self.ehi))
