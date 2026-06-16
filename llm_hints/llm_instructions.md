@@ -1,5 +1,6 @@
 @llm_hints/llm_instructions.md
 @llm_hints/sources/paper_cond_coop.md
+@llm_hints/sources/paper_ding2024.md
 @llm_hints/superpowers/plans/2026-06-04-coop-disaster-sim.md
 @llm_hints/superpowers/specs/2026-06-04-coop-disaster-sim-design.md
 
