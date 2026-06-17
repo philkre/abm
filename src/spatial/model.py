@@ -174,8 +174,6 @@ class SpatialCollectiveRiskModel(mesa.Model):
         for agent in self.agents:
             neighbour = self.random.choice(self._neighbours(agent))
             delta = neighbour.payoff - agent.payoff
-            print("beta: ",cfg.beta)
-            print("delta: ", delta)
             prob = 1.0 / (1.0 + exp(-cfg.beta * delta))
             new_strategies[agent.unique_id] = (
                 neighbour.strategy if self.random.random() < prob else agent.strategy
