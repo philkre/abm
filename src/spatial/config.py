@@ -49,8 +49,8 @@ class ModelConfig:
     env_initial: float = 0.0
     env_min: float = -1.0
     env_max: float = 1.0
-    env_delta: float = 0.021
-    env_gamma: float = 0.04
+    env_delta: float = 0.04
+    env_gamma: float = 0.02
     env_r: float = 4.0
 
     def __post_init__(self) -> None:

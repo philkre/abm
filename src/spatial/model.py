@@ -1,7 +1,7 @@
 """Spatial threshold public goods game — Mesa model."""
 
 from __future__ import annotations
-
+import math
 from math import exp
 
 import mesa
@@ -97,7 +97,7 @@ class SpatialCollectiveRiskModel(mesa.Model):
         self._pool_phase()
         self._disaster_phase()
         self._payoff_phase()
-        self._strategy_update_phase()
+        self._strategy_update_phase_payoff()
         self._mutation_phase()
         self._update_prev_contributions_phase()
         self._environmental_update_phase()
@@ -163,6 +163,37 @@ class SpatialCollectiveRiskModel(mesa.Model):
                 agent.wealth -= loss
             agent.payoff = agent.wealth - wealth_before
 
+
+    def _strategy_update_phase_payoff(self) -> None:
+        """ Synchronous Fermi imitation using per-round payoff as fitness proxy. """
+        cfg = self.config
+        new_strategies: dict[int, str] = {}
+
+        for agent in self.agents:
+            neighbour = self.random.choice(self._neighbours(agent))
+
+            # Use current-round payoff difference
+            delta = neighbour.payoff - agent.payoff
+
+            # Argument of the exponential
+            x = cfg.beta * delta
+
+            # Clamp x to avoid overflow in exp(x)
+            if x > 50:
+                prob = 1.0          # neighbour much better: almost sure imitation
+            elif x < -50:
+                prob = 0.0          # neighbour much worse: almost never imitate
+            else:
+                prob = 1.0 / (1.0 + math.exp(-x))
+
+            new_strategies[agent.unique_id] = (
+                neighbour.strategy if self.random.random() < prob else agent.strategy)
+
+        # Synchronous update
+        for agent in self.agents:
+            agent.strategy = new_strategies[agent.unique_id]
+
+
     def _strategy_update_phase(self) -> None:
         """Synchronous Fermi imitation using accumulated wealth as fitness proxy.
 
@@ -174,6 +205,7 @@ class SpatialCollectiveRiskModel(mesa.Model):
         for agent in self.agents:
             neighbour = self.random.choice(self._neighbours(agent))
             delta = neighbour.payoff - agent.payoff
+            print(delta)
             prob = 1.0 / (1.0 + exp(-cfg.beta * delta))
             new_strategies[agent.unique_id] = (
                 neighbour.strategy if self.random.random() < prob else agent.strategy
@@ -206,7 +238,7 @@ class SpatialCollectiveRiskModel(mesa.Model):
             n_C = sum(m.strategy != "D" for m in neighborhood)
             n_D = sum(m.strategy == "D" for m in neighborhood)
             e_old = self.ehi[agent.unique_id]
-            e_new = e_old + n_C * cfg.env_delta + n_D * cfg.env_gamma
+            e_new = e_old + n_C * cfg.env_delta - n_D * cfg.env_gamma
 
             # bound [-1, 1]
             e_new = max(cfg.env_min, min(cfg.env_max, e_new))
