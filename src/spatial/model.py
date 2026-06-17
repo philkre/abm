@@ -72,7 +72,7 @@ class SpatialCollectiveRiskModel(mesa.Model):
             agent.cell = cell
 
             # initial EHI: e_i(0)
-            self.ehi[agent.unique.id] = config.env_initial
+            self.ehi[agent.unique_id] = config.env_initial
 
         self._pools: dict[int, float] = {}
 
@@ -173,7 +173,9 @@ class SpatialCollectiveRiskModel(mesa.Model):
         new_strategies: dict[int, str] = {}
         for agent in self.agents:
             neighbour = self.random.choice(self._neighbours(agent))
-            delta = neighbour.wealth - agent.wealth
+            delta = neighbour.payoff - agent.payoff
+            print("beta: ",cfg.beta)
+            print("delta: ", delta)
             prob = 1.0 / (1.0 + exp(-cfg.beta * delta))
             new_strategies[agent.unique_id] = (
                 neighbour.strategy if self.random.random() < prob else agent.strategy
@@ -204,7 +206,7 @@ class SpatialCollectiveRiskModel(mesa.Model):
 
             # environment update eq
             n_C = sum(m.strategy != "D" for m in neighborhood)
-            n_D = sum(m.startegy == "D" for m in neighborhood)
+            n_D = sum(m.strategy == "D" for m in neighborhood)
             e_old = self.ehi[agent.unique_id]
             e_new = e_old + n_C * cfg.env_delta + n_D * cfg.env_gamma
 
@@ -241,4 +243,4 @@ class SpatialCollectiveRiskModel(mesa.Model):
         return sum(a.disaster for a in agents) / len(agents)
     
     def _mean_ehi(self) -> float:
-        return sum(self.ehi.values() / len(self.ehi))
+        return sum(self.ehi.values()) / len(self.ehi)
