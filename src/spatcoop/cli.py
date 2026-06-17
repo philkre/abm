@@ -59,8 +59,16 @@ def run_single(l, p_max, beta, seed, n_gens, eta, save):
 @click.option("--n-gens", default=1500, type=int, show_default=True)
 @click.option("--n-seeds", default=50, type=int, show_default=True)
 @click.option("--n-jobs", default=-1, type=int, show_default=True, help="-1 = all CPUs.")
-def run_batch_cmd(phase, n, l, n_gens, n_seeds, n_jobs):
-    """Run the full SA sample with checkpointing."""
+@click.option("--task-id", default=None, type=int, help="SLURM array task index (0-based).")
+@click.option("--n-tasks", default=None, type=int, help="Total number of SLURM array tasks.")
+def run_batch_cmd(phase, n, l, n_gens, n_seeds, n_jobs, task_id, n_tasks):
+    """Run the full SA sample with checkpointing.
+
+    When --task-id and --n-tasks are given, only the corresponding chunk of the
+    Saltelli sample is processed (for SLURM array jobs).
+    """
+    from spatcoop.runner import run_batch
+
     problem = LINEAR_PROBLEM if phase == "linear" else SIGMOID_PROBLEM
     base = ModelParams(
         L=l,
@@ -68,8 +76,19 @@ def run_batch_cmd(phase, n, l, n_gens, n_seeds, n_jobs):
         risk_mode=SIGMOID if phase == "sigmoid" else LINEAR,
     )
     seeds = list(range(n_seeds))
-    click.echo(f"Phase={phase}, N={n}, L={l}, n_gens={n_gens}, " f"n_seeds={n_seeds}, n_jobs={n_jobs}")
-    run_sa(problem, n, base, seeds, n_jobs=n_jobs)
+
+    if task_id is not None and n_tasks is not None:
+        # Array mode: slice the Saltelli sample for this task
+        params_list, _ = sample_params(problem, n, base)
+        chunk = len(params_list) // n_tasks
+        lo = task_id * chunk
+        hi = lo + chunk if task_id < n_tasks - 1 else len(params_list)
+        click.echo(f"Array task {task_id}/{n_tasks}: params [{lo}:{hi}], L={l}, n_jobs={n_jobs}")
+        run_batch(params_list[lo:hi], seeds, n_jobs=n_jobs)
+    else:
+        click.echo(f"Phase={phase}, N={n}, L={l}, n_gens={n_gens}, n_seeds={n_seeds}, n_jobs={n_jobs}")
+        run_sa(problem, n, base, seeds, n_jobs=n_jobs)
+
     click.echo("Done.")
 
 

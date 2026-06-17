@@ -12,15 +12,4 @@
 
 module load Python/3.11.3-GCCcore-12.3.0
 
-# Activate the project venv created via uv
-source "$HOME/.venvs/spatcoop/bin/activate"
-
-python - <<'EOF'
-from spatcoop.sa import run_sa, LINEAR_PROBLEM
-from spatcoop.params import ModelParams
-
-base  = ModelParams(L=150, n_gens=1500, measure_window=200)
-seeds = list(range(50))
-run_sa(LINEAR_PROBLEM, N=512, base_params=base, seeds=seeds, n_jobs=32)
-print("SA complete.")
-EOF
+uv run spatcoop run-batch --phase linear --N 64 --L 150 --n-gens 1500 --n-seeds 50
