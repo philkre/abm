@@ -1,5 +1,6 @@
 @llm_hints/llm_instructions.md
-@llm_hints/sources/paper_cond_coop.md
+@llm_hints/sources/paper_weitz2016.md
+@llm_hints/sources/paper_jonsson2025.md
 @llm_hints/sources/paper_ding2024.md
 @llm_hints/superpowers/plans/2026-06-04-coop-disaster-sim.md
 @llm_hints/superpowers/specs/2026-06-04-coop-disaster-sim-design.md
@@ -8,7 +9,12 @@
 # LLM Instructions
 
 ## Source material
-The context for this project is [the paper](sources/paper_cond_coop.md). Scan it for relevant information to understand the codebase and the purpose of the project. 
+The context for this project is several papers:
+- Weitz et al. (2016) - "The Coevolution of Cooperation and Social Structure" (llm_hints/sources/paper_weitz2016.md)
+- Conditional Cooperation Paper (llm_hints/sources/paper_jonsson2025.md)
+- Ding et al. (2024) - "Title of Ding Paper" (llm_hints/sources/paper_ding2024.md)
+
+. Scan it for relevant information to understand the codebase and the purpose of the project. 
 
 ## Runtime Management
 ### Python Runtime
