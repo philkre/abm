@@ -5,13 +5,15 @@
 #SBATCH --job-name=spatcoop_array
 #SBATCH --array=0-95
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=24
 #SBATCH --time=02:00:00
-#SBATCH --partition=thin
+#SBATCH --partition=genoa
 #SBATCH --output=logs/%A_%a.out
 #SBATCH --error=logs/%A_%a.err
 
-module load Python/3.11.3-GCCcore-12.3.0
+module load Python/3.13.1-GCCcore-13.3.0 2>/dev/null || true
+
+mkdir -p logs
 
 uv run spatcoop run-batch --phase linear --N 64 --L 150 --n-gens 1500 --n-seeds 50 \
     --task-id "$SLURM_ARRAY_TASK_ID" --n-tasks 96

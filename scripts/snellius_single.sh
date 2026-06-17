@@ -4,12 +4,14 @@
 #SBATCH --job-name=spatcoop_sa
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=24
 #SBATCH --time=04:00:00
-#SBATCH --partition=thin
+#SBATCH --partition=genoa
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.err
 
-module load Python/3.11.3-GCCcore-12.3.0
+mkdir -p logs  # for any in-script writes; logs/ must exist before sbatch is called
+
+module load Python/3.13.1-GCCcore-13.3.0 2>/dev/null || true
 
 uv run spatcoop run-batch --phase linear --N 64 --L 150 --n-gens 1500 --n-seeds 50
