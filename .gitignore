@@ -3,6 +3,8 @@
 # Python runtime files
 .venv
 *.pyc
+*.npz
+*.npy
 __pycache__/
 
 # Data files

@@ -1,9 +1,11 @@
-@llm_hints/llm_instructions.md
-@llm_hints/sources/paper_weitz2016.md
-@llm_hints/sources/paper_jonsson2025.md
-@llm_hints/sources/paper_ding2024.md
-@llm_hints/superpowers/plans/2026-06-04-coop-disaster-sim.md
-@llm_hints/superpowers/specs/2026-06-04-coop-disaster-sim-design.md
+@sources/paper_weitz2016.md
+@sources/paper_jonsson2025.md
+@sources/paper_ding2024.md
+@sources/model_specification.md
+@sources/flood_faithfullness_and_validation.md
+@sources/parameter_list.md
+@superpowers/plans/2026-06-04-coop-disaster-sim.md
+@superpowers/specs/2026-06-04-coop-disaster-sim-design.md
 
 
 # LLM Instructions
