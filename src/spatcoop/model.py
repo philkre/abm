@@ -1,0 +1,208 @@
+"""run_episode — one complete model run returning a RunResult."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from dataclasses import asdict
+import json
+
+import numpy as np
+from tqdm import tqdm
+
+from spatcoop.params import ModelParams, D, UC, CC, LINEAR, SIGMOID
+from spatcoop.kernel import focal_sum, fermi_step
+
+# ── Output types ──────────────────────────────────────────────────────────────
+
+
+@dataclass
+class RunResult:
+    params: ModelParams
+    seed: int
+    timeseries: dict  # keys from _observe; values: (n_gens,) float32 arrays
+    summary: dict  # final-window means + moran_i
+    completed: bool = True
+
+
+# ── Initialisation ────────────────────────────────────────────────────────────
+
+
+def _draw_lambda(p: ModelParams, L: int, rng: np.random.Generator) -> np.ndarray:
+    """Draw the loss-aversion field λ_i for all cells."""
+    if p.lambda_mode == "homogeneous":
+        return np.full((L, L), p.lambda_mean, dtype=np.float32)
+    elif p.lambda_mode == "lognormal":
+        # Match mean = lambda_mean via log-normal parameterisation
+        sigma = 0.5
+        mu = np.log(p.lambda_mean) - 0.5 * sigma**2
+        return rng.lognormal(mu, sigma, (L, L)).astype(np.float32)
+    elif p.lambda_mode == "uniform":
+        return rng.uniform(1.0, p.lambda_max, (L, L)).astype(np.float32)
+    else:
+        raise ValueError(f"Unknown lambda_mode: {p.lambda_mode!r}")
+
+
+def _init_state(p: ModelParams, rng: np.random.Generator) -> dict:
+    L = p.L
+    if p.initial_mix == "equal":
+        strategy = rng.choice([D, UC], size=(L, L)).astype(np.int8)
+    elif p.initial_mix == "thirds":
+        strategy = rng.choice([D, UC, CC], size=(L, L)).astype(np.int8)
+    else:
+        raise ValueError(f"Unknown initial_mix: {p.initial_mix!r}")
+
+    return dict(
+        strategy=strategy,
+        env=np.zeros((L, L), dtype=np.float32),
+        wealth=np.full((L, L), p.w0, dtype=np.float32),
+        phi=np.zeros((L, L), dtype=np.float32),
+        prev_c=np.zeros((L, L), dtype=np.float32),  # CC lagged contributions
+        contrib=np.zeros((L, L), dtype=np.float32),
+        lam=_draw_lambda(p, L, rng),
+    )
+
+
+# ── Per-generation step ───────────────────────────────────────────────────────
+
+
+def _flood_prob(env: np.ndarray, p: ModelParams) -> np.ndarray:
+    if p.risk_mode == LINEAR:
+        prob = p.p_max * (1.0 - env) / 2.0
+    else:  # SIGMOID
+        prob = p.p_max / (1.0 + np.exp(p.k * (env - p.e0)))
+    return np.clip(prob + p.p_min, p.p_min, 1.0).astype(np.float32)
+
+
+def _step(state: dict, p: ModelParams, rng: np.random.Generator, gen: int) -> tuple[dict, dict]:
+    """Advance state by one generation. Mutates state in-place; also returns it."""
+    s = state["strategy"]
+    e = state["env"]
+    w = state["wealth"]
+    phi = state["phi"]
+    lam = state["lam"]
+    L = p.L
+
+    # ── Step 1: Contributions ─────────────────────────────────────────────────
+    p_i = _flood_prob(e, p)
+
+    # Latch previous round's contributions for CC before overwriting
+    state["prev_c"] = state["contrib"].copy()
+    prev_c = state["prev_c"]
+
+    contrib = np.zeros((L, L), dtype=np.float32)
+    contrib[s == UC] = p.c_bar
+
+    if np.any(s == CC):
+        nbr_mean = (
+            np.roll(prev_c, 1, axis=0)
+            + np.roll(prev_c, -1, axis=0)
+            + np.roll(prev_c, 1, axis=1)
+            + np.roll(prev_c, -1, axis=1)
+        ) / 4.0
+        # Loss-averse premium; zero when λ_i = 1
+        premium = (lam - 1.0) * p_i * p.ell * w / 5.0
+        cc_contrib = np.clip(nbr_mean + premium, 0.0, p.c_bar)
+        contrib[s == CC] = cc_contrib[s == CC]
+
+    state["contrib"] = contrib
+
+    # ── Step 2: Pool ──────────────────────────────────────────────────────────
+    if p.well_mixed:
+        # Every cell sees the same total contribution scaled to group size 5
+        total = contrib.sum()
+        pool_val = total * 5.0 / (L * L)
+        pool = np.full((L, L), pool_val, dtype=np.float32)
+    else:
+        pool = focal_sum(contrib)
+
+    # ── Step 4: Flood check ───────────────────────────────────────────────────
+    exposed = pool < p.T
+    flood_draw = rng.random((L, L), dtype=np.float32) < p_i
+    disaster = (exposed & flood_draw).astype(np.float32)
+
+    # ── Step 5: Wealth and fitness ────────────────────────────────────────────
+    pg_return = p.R * pool / 5.0
+    w_before = w.copy()
+    w_new = (1.0 + p.g) * w - contrib - disaster * p.ell * w + pg_return
+    w_new = np.maximum(w_new, 0.0)
+
+    pi = p.g * w_before - contrib - disaster * p.ell * w_before + pg_return
+    phi_new = (1.0 - p.kappa) * phi + pi
+
+    state["wealth"] = w_new
+    state["phi"] = phi_new
+
+    # ── Step 6: Environment update (every τ generations) ─────────────────────
+    if gen % p.env_update_every == 0:
+        maint = focal_sum(contrib) / p.c_bar  # m_j^+: in [0, 5]
+        neglect = 5.0 - maint  # m_j^-
+        flood_group = focal_sum(disaster)  # Σ_{k ∈ G_j} d_k (A+ damage)
+
+        delta_e = p.delta * maint - p.gamma * neglect - p.eta * flood_group
+        state["env"] = np.clip(e + delta_e, -1.0, 1.0)
+
+    # ── Step 7: Fermi strategy update ─────────────────────────────────────────
+    if not p.frozen_strategies:
+        s_new = fermi_step(s, phi_new, p.beta, rng)
+
+        # ── Step 8: Mutation ──────────────────────────────────────────────────
+        n_strategies = 2 if p.initial_mix == "equal" else 3
+        mutate_mask = rng.random((L, L), dtype=np.float32) < p.mu
+        random_strats = rng.integers(0, n_strategies, (L, L), dtype=np.int8)
+        s_new[mutate_mask] = random_strats[mutate_mask]
+
+        state["strategy"] = s_new
+
+    obs = _observe(state, pool, disaster, p)
+    return state, obs
+
+
+def _observe(state: dict, pool: np.ndarray, disaster: np.ndarray, p: ModelParams) -> dict:
+    s = state["strategy"]
+    return {
+        "n_D": int((s == D).sum()),
+        "n_UC": int((s == UC).sum()),
+        "n_CC": int((s == CC).sum()),
+        "mean_wealth": float(state["wealth"].mean()),
+        "flood_rate": float(disaster.mean()),
+        "mean_env": float(state["env"].mean()),
+        "resilience": float((pool >= p.T).mean()),
+    }
+
+
+# ── Moran's I ─────────────────────────────────────────────────────────────────
+
+
+def _moran_i(strategy: np.ndarray) -> float:
+    """Spatial autocorrelation of UC indicator. O(L²) via rolling sums."""
+    x = (strategy == UC).astype(np.float32)
+    x_mean = float(x.mean())
+    x_dev = x - x_mean
+    x_lag = (np.roll(x, 1, axis=0) + np.roll(x, -1, axis=0) + np.roll(x, 1, axis=1) + np.roll(x, -1, axis=1)) / 4.0
+    num = float((x_dev * (x_lag - x_mean)).sum())
+    denom = float((x_dev**2).sum())
+    n = strategy.size
+    return float(num / denom) if denom > 0 else 0.0
+
+
+# ── Top-level entry point ─────────────────────────────────────────────────────
+
+
+def run_episode(p: ModelParams, seed: int, progress: bool = False) -> RunResult:
+    """Run one complete model episode and return a RunResult."""
+    rng = np.random.default_rng(seed)
+    state = _init_state(p, rng)
+    ts = {k: [] for k in ["n_D", "n_UC", "n_CC", "mean_wealth", "flood_rate", "mean_env", "resilience"]}
+
+    for gen in tqdm(range(p.n_gens), desc=f"seed={seed}", unit="gen", disable=not progress):
+        state, obs = _step(state, p, rng, gen)
+        for k, v in obs.items():
+            ts[k].append(v)
+
+    ts = {k: np.array(v, dtype=np.float32) for k, v in ts.items()}
+
+    w = p.measure_window
+    summary = {k: float(ts[k][-w:].mean()) for k in ts}
+    summary["moran_i"] = _moran_i(state["strategy"])
+
+    return RunResult(params=p, seed=seed, timeseries=ts, summary=summary)
