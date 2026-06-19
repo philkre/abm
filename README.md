@@ -115,6 +115,7 @@ strategies by synchronous Fermi imitation.
 
 ```bash
 uv run spatial-run
+uv run python src/spatial/plot.py
 ```
 
 **Use as a library:**
