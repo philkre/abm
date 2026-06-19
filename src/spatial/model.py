@@ -172,13 +172,11 @@ class SpatialCollectiveRiskModel(mesa.Model):
         for agent in self.agents:
             neighbour = self.random.choice(self._neighbours(agent))
 
-            # Use current-round payoff difference
+            # current-round payoff difference
             delta = neighbour.payoff - agent.payoff
-
-            # Argument of the exponential
             x = cfg.beta * delta
 
-            # Clamp x to avoid overflow in exp(x)
+            # avoid overflow
             if x > 50:
                 prob = 1.0          # neighbour much better: almost sure imitation
             elif x < -50:
