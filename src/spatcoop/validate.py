@@ -1,83 +1,37 @@
-"""Validation targets: Jonsson well-mixed, Ding phase diagram, Weitz oscillation."""
+"""Validation target: Weitz oscillation (mean-field, soft check).
+
+The Ding and Jonsson replicative targets were removed — neither is achievable
+for this model as written:
+
+  - Ding: spatcoop couples environment → flood *risk*, not environment →
+    *payoff* (there is no `r·Σe` benefit term). At `p_max=0` (the Ding
+    isolation point) the environment no longer affects payoff, leaving pure
+    cost, so the cooperative C phase cannot exist. spatcoop is not
+    Ding-reducible; the epgg package holds the Ding reproduction instead.
+  - Jonsson: the threshold-resilience metric `(pool ≥ T)` needs near-universal
+    contribution and reads ~0 with any defectors present, so it does not match
+    Jonsson's contribution-level measure.
+
+Code-vs-math checks now live in tests/test_spatcoop_verification.py (including
+the mean-field `well_mixed → (x≈0, e≈−1)` oracle).
+"""
 
 from __future__ import annotations
-from dataclasses import replace
+
 import numpy as np
+
 from spatcoop.params import ModelParams, LINEAR
 from spatcoop.model import run_episode
-
-# ── M3: Jonsson well-mixed qualitative check ──────────────────────────────────
-
-
-def validate_jonsson(tol_coop: float = 0.5, seed: int = 0) -> bool:
-    """
-    Two runs — risk (p_max=0.5) vs no-risk (p_max=0.0) — in the well-mixed
-    limit with frozen strategies and a productive multiplier (R=1.0).
-
-    Returns True when:
-      - risk run resilience  > tol_coop
-      - no-risk run resilience < 0.3
-    """
-    base = ModelParams(
-        L=50,
-        n_gens=20,
-        measure_window=5,
-        well_mixed=True,
-        frozen_strategies=True,
-        initial_mix="thirds",
-        R=1.0,
-        g=0.0,  # flat income
-        kappa=0.0,  # no fitness discounting
-        mu=0.0,
-        T=3.75,
-    )
-    risk = run_episode(replace(base, p_max=0.5), seed=seed)
-    norisk = run_episode(replace(base, p_max=0.0), seed=seed)
-    return risk.summary["resilience"] > tol_coop and norisk.summary["resilience"] < 0.3
-
-
-# ── M4: Ding phase diagram parameters ────────────────────────────────────────
-
-# At δ ≈ 0.021, γ = 0.04, L = 200, cooperation should dominate after ~2600 gens.
-DING_BASE = dict(
-    L=200,
-    n_gens=3000,
-    measure_window=200,
-    eta=0.0,
-    p_max=0.0,
-    T=0.0,
-    R=0.0,
-    g=0.0,
-    gamma=0.04,
-    beta=2.0,
-    mu=0.01,
-    initial_mix="equal",  # UC/D only
-    risk_mode=LINEAR,
-)
-
-DING_DELTA_SWEEP = np.linspace(0.005, 0.05, 20)
-
-
-def validate_ding_c_phase(delta: float = 0.021, seed: int = 0, coop_threshold: float = 0.7) -> bool:
-    """
-    At the given δ in the pure Ding regime (no floods, no threshold),
-    confirm that the UC fraction in the final window exceeds coop_threshold.
-    Must run at L=200 — the C phase does not exist at smaller lattices.
-    """
-    p = ModelParams(**DING_BASE, delta=delta)
-    r = run_episode(p, seed=seed)
-    uc_frac = r.summary["n_UC"] / (p.L**2)
-    return uc_frac > coop_threshold
-
-
-# ── M7: Weitz oscillation (soft target) ──────────────────────────────────────
 
 
 def check_weitz_oscillation(seed: int = 0) -> bool:
     """
     In the mean-field limit with η>0 and moderate β, cooperation should show
     non-monotone dynamics (oscillations). Returns True if the UC time-series
-    has at least 2 local maxima in the final half of the run.
+    reverses direction at least twice in the final half of the run.
+
+    NOTE: this reversal count is a weak proxy — a noisy series clears it easily.
+    Treat as a soft, illustrative check, not a quantitative target.
     """
     p = ModelParams(
         L=50,

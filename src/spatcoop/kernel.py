@@ -50,7 +50,10 @@ def fermi_step_numpy(
     phi_j = np.choose(dirs, [phi_N, phi_S, phi_E, phi_W])
     s_j = np.choose(dirs, [s_N, s_S, s_E, s_W])
 
-    fermi = 1.0 / (1.0 + np.exp(-beta * (phi_j - phi)))
+    # Clip the exponent to guard overflow at large beta (the numba kernel
+    # short-circuits the same ±30 range). exp(±30) saturates fermi to 0/1.
+    z = np.clip(-beta * (phi_j - phi), -30.0, 30.0)
+    fermi = 1.0 / (1.0 + np.exp(z))
     accept = rng.random((L, L), dtype=np.float32) < fermi
 
     return np.where(accept, s_j, strategy).astype(np.int8)
