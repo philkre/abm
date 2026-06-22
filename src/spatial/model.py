@@ -1,7 +1,7 @@
 """Spatial threshold public goods game — Mesa model."""
 
 from __future__ import annotations
-
+import math
 from math import exp
 
 import mesa
@@ -41,6 +41,9 @@ class SpatialCollectiveRiskModel(mesa.Model):
         super().__init__(rng=config.seed)
         self.config = config
 
+        # local EHI at each side using agent.unique_id, e_i
+        self.ehi: dict[int, float] = {}
+
         self.grid = OrthogonalVonNeumannGrid(
             (config.grid_size, config.grid_size),
             torus=True,
@@ -68,6 +71,9 @@ class SpatialCollectiveRiskModel(mesa.Model):
             )
             agent.cell = cell
 
+            # initial EHI: e_i(0)
+            self.ehi[agent.unique_id] = config.env_initial
+
         self._pools: dict[int, float] = {}
 
         self.datacollector = DataCollector(
@@ -77,6 +83,7 @@ class SpatialCollectiveRiskModel(mesa.Model):
                 "cooperation_rate": self._cooperation_rate,
                 "mean_wealth": self._mean_wealth,
                 "disaster_rate": self._disaster_rate,
+                "mean_ehi": self._mean_ehi,
             }
         )
         self.datacollector.collect(self)
@@ -90,9 +97,10 @@ class SpatialCollectiveRiskModel(mesa.Model):
         self._pool_phase()
         self._disaster_phase()
         self._payoff_phase()
-        self._strategy_update_phase()
+        self._strategy_update_phase_payoff()
         self._mutation_phase()
         self._update_prev_contributions_phase()
+        self._environmental_update_phase()
         self.datacollector.collect(self)
 
     # ------------------------------------------------------------------
@@ -142,12 +150,47 @@ class SpatialCollectiveRiskModel(mesa.Model):
         cfg = self.config
         for agent in self.agents:
             wealth_before = agent.wealth
+            
+            # enviromental benefit
+            env_sum = sum(self.ehi[m.unique_id] for m in self._focal_group(agent))
+            env_benefit = cfg.env_r * env_sum
+            agent.wealth += env_benefit
+
             agent.wealth += cfg.income           # receive round endowment
             agent.wealth -= agent.contribution
             if agent.disaster:
                 loss = cfg.loss_fraction * agent.wealth
                 agent.wealth -= loss
             agent.payoff = agent.wealth - wealth_before
+
+
+    def _strategy_update_phase_payoff(self) -> None:
+        """ Synchronous Fermi imitation using per-round payoff as fitness proxy. """
+        cfg = self.config
+        new_strategies: dict[int, str] = {}
+
+        for agent in self.agents:
+            neighbour = self.random.choice(self._neighbours(agent))
+
+            # current-round payoff difference
+            delta = neighbour.payoff - agent.payoff
+            x = cfg.beta * delta
+
+            # avoid overflow
+            if x > 50:
+                prob = 1.0          # neighbour much better: almost sure imitation
+            elif x < -50:
+                prob = 0.0          # neighbour much worse: almost never imitate
+            else:
+                prob = 1.0 / (1.0 + math.exp(-x))
+
+            new_strategies[agent.unique_id] = (
+                neighbour.strategy if self.random.random() < prob else agent.strategy)
+
+        # Synchronous update
+        for agent in self.agents:
+            agent.strategy = new_strategies[agent.unique_id]
+
 
     def _strategy_update_phase(self) -> None:
         """Synchronous Fermi imitation using accumulated wealth as fitness proxy.
@@ -159,7 +202,8 @@ class SpatialCollectiveRiskModel(mesa.Model):
         new_strategies: dict[int, str] = {}
         for agent in self.agents:
             neighbour = self.random.choice(self._neighbours(agent))
-            delta = neighbour.wealth - agent.wealth
+            delta = neighbour.payoff - agent.payoff
+            print(delta)
             prob = 1.0 / (1.0 + exp(-cfg.beta * delta))
             new_strategies[agent.unique_id] = (
                 neighbour.strategy if self.random.random() < prob else agent.strategy
@@ -179,6 +223,27 @@ class SpatialCollectiveRiskModel(mesa.Model):
         """Store each agent's contribution so CC can read it next round."""
         for agent in self.agents:
             agent.prev_contribution = agent.contribution
+
+    def _environmental_update_phase(self) -> None:
+        """Update EHI based on number of cooperators and defectors in the neighborhood."""
+        cfg = self.config
+        
+        new_ehi: dict[int, float] = {}
+        for agent in self.agents:
+            neighborhood = self._focal_group(agent)
+
+            # environment update eq
+            n_C = sum(m.strategy != "D" for m in neighborhood)
+            n_D = sum(m.strategy == "D" for m in neighborhood)
+            e_old = self.ehi[agent.unique_id]
+            e_new = e_old + n_C * cfg.env_delta - n_D * cfg.env_gamma
+
+            # bound [-1, 1]
+            e_new = max(cfg.env_min, min(cfg.env_max, e_new))
+            new_ehi[agent.unique_id] = e_new
+
+        self.ehi = new_ehi
+
 
     # ------------------------------------------------------------------
     # DataCollector reporters
@@ -204,3 +269,6 @@ class SpatialCollectiveRiskModel(mesa.Model):
     def _disaster_rate(self) -> float:
         agents = list(self.agents)
         return sum(a.disaster for a in agents) / len(agents)
+    
+    def _mean_ehi(self) -> float:
+        return sum(self.ehi.values()) / len(self.ehi)
