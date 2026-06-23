@@ -18,7 +18,7 @@ import click
 
 from spatcoop.params import ModelParams, LINEAR, SIGMOID
 from spatcoop.model import run_episode
-from spatcoop.runner import save_result, run_batch
+from spatcoop.runner import save_result
 from spatcoop.sa import (
     run_sa,
     sample_params,
@@ -52,9 +52,7 @@ def _parse_fix_spec(spec: str) -> tuple[str, object]:
     name, val_s = parts
     fields = ModelParams.__dataclass_fields__
     if name not in fields:
-        raise click.BadParameter(
-            f"Unknown parameter {name!r}. Run `spatcoop sensitivity run --help` for context."
-        )
+        raise click.BadParameter(f"Unknown parameter {name!r}. Run `spatcoop sensitivity run --help` for context.")
     ftype = fields[name].type
     if ftype is bool:
         val = val_s.lower() in ("1", "true", "yes")
@@ -85,15 +83,11 @@ def _print_sa_file(path: Path) -> None:
 
     click.echo(f"\n{'─'*60}")
     click.echo(f"  Output key : {key}")
-    click.echo(
-        f"  Method     : {method}  (N={result['N']}, samples={result['n_samples']}, seeds={result['n_seeds']})"
-    )
+    click.echo(f"  Method     : {method}  (N={result['N']}, samples={result['n_samples']}, seeds={result['n_seeds']})")
     click.echo(f"{'─'*60}")
 
     if method == "sobol":
-        click.echo(
-            f"  {'Parameter':>14}  {'S1':>8}  {'S1_CI':>8}  {'ST':>8}  {'ST_CI':>8}"
-        )
+        click.echo(f"  {'Parameter':>14}  {'S1':>8}  {'S1_CI':>8}  {'ST':>8}  {'ST_CI':>8}")
         click.echo("  " + "─" * 52)
         for i, name in enumerate(names):
             click.echo(
@@ -101,14 +95,30 @@ def _print_sa_file(path: Path) -> None:
                 f"  {result['ST'][i]:8.3f}  {result['ST_conf'][i]:8.3f}"
             )
     elif method == "morris":
-        click.echo(
-            f"  {'Parameter':>14}  {'mu*':>8}  {'mu*_CI':>8}  {'sigma':>8}  {'mu':>8}"
-        )
+        click.echo(f"  {'Parameter':>14}  {'mu*':>8}  {'mu*_CI':>8}  {'sigma':>8}  {'mu':>8}")
         click.echo("  " + "─" * 52)
         for i, name in enumerate(names):
             click.echo(
                 f"  {name:>14}  {result['mu_star'][i]:8.3f}  {result['mu_star_conf'][i]:8.3f}"
                 f"  {result['sigma'][i]:8.3f}  {result['mu'][i]:8.3f}"
+            )
+    elif method == "pawn":
+        # KS ∈ [0,1]; higher = more influential on the full distribution
+        click.echo(f"  {'Parameter':>14}  {'KS (med)':>10}  {'KS_min':>8}  {'KS_mean':>8}  {'KS_max':>8}")
+        click.echo("  " + "─" * 58)
+        for i, name in enumerate(names):
+            click.echo(
+                f"  {name:>14}  {result['KS'][i]:10.3f}  {result['KS_min'][i]:8.3f}"
+                f"  {result['KS_mean'][i]:8.3f}  {result['KS_max'][i]:8.3f}"
+            )
+    elif method == "delta":
+        # δ ∈ [0,1]: expected shift in output distribution
+        click.echo(f"  {'Parameter':>14}  {'delta':>8}  {'delta_CI':>10}  {'S1':>8}  {'S1_CI':>8}")
+        click.echo("  " + "─" * 58)
+        for i, name in enumerate(names):
+            click.echo(
+                f"  {name:>14}  {result['delta'][i]:8.3f}  {result['delta_conf'][i]:10.3f}"
+                f"  {result['S1'][i]:8.3f}  {result['S1_conf'][i]:8.3f}"
             )
 
 
@@ -133,7 +143,7 @@ def sensitivity_group():
 @click.option("--n-gens", default=1500, type=int, show_default=True)
 @click.option("--eta", default=0.0, type=float, show_default=True)
 @click.option("--save/--no-save", default=False, help="Save .npz checkpoint.")
-def run_single(l, p_max, beta, seed, n_gens, eta, save):
+def run_single(l, p_max, beta, seed, n_gens, eta, save):  # noqa: E741
     """Quick single run for development — prints summary."""
     p = ModelParams(L=l, p_max=p_max, beta=beta, n_gens=n_gens, eta=eta)
     click.echo(f"Running: L={l}, p_max={p_max}, β={beta}, η={eta}, seed={seed}")
@@ -163,16 +173,10 @@ def run_single(l, p_max, beta, seed, n_gens, eta, save):
 @click.option("--L", default=150, type=int, show_default=True)
 @click.option("--n-gens", default=1500, type=int, show_default=True)
 @click.option("--n-seeds", default=50, type=int, show_default=True)
-@click.option(
-    "--n-jobs", default=-1, type=int, show_default=True, help="-1 = all CPUs."
-)
-@click.option(
-    "--task-id", default=None, type=int, help="SLURM array task index (0-based)."
-)
-@click.option(
-    "--n-tasks", default=None, type=int, help="Total number of SLURM array tasks."
-)
-def run_batch_cmd(phase, n, l, n_gens, n_seeds, n_jobs, task_id, n_tasks):
+@click.option("--n-jobs", default=-1, type=int, show_default=True, help="-1 = all CPUs.")
+@click.option("--task-id", default=None, type=int, help="SLURM array task index (0-based).")
+@click.option("--n-tasks", default=None, type=int, help="Total number of SLURM array tasks.")
+def run_batch_cmd(phase, n, l, n_gens, n_seeds, n_jobs, task_id, n_tasks):  # noqa: E741
     """Run the full SA sample with checkpointing.
 
     When --task-id and --n-tasks are given, only the corresponding chunk of the
@@ -194,14 +198,10 @@ def run_batch_cmd(phase, n, l, n_gens, n_seeds, n_jobs, task_id, n_tasks):
         chunk = len(params_list) // n_tasks
         lo = task_id * chunk
         hi = lo + chunk if task_id < n_tasks - 1 else len(params_list)
-        click.echo(
-            f"Array task {task_id}/{n_tasks}: params [{lo}:{hi}], L={l}, n_jobs={n_jobs}"
-        )
+        click.echo(f"Array task {task_id}/{n_tasks}: params [{lo}:{hi}], L={l}, n_jobs={n_jobs}")
         run_batch(params_list[lo:hi], seeds, n_jobs=n_jobs)
     else:
-        click.echo(
-            f"Phase={phase}, N={n}, L={l}, n_gens={n_gens}, n_seeds={n_seeds}, n_jobs={n_jobs}"
-        )
+        click.echo(f"Phase={phase}, N={n}, L={l}, n_gens={n_gens}, n_seeds={n_seeds}, n_jobs={n_jobs}")
         run_sa(problem, n, base, seeds, n_jobs=n_jobs)
 
     click.echo("Done.")
@@ -219,14 +219,10 @@ def analyse_cmd(phase, n):
     """Print Sobol S1 and ST from saved results/sa/sobol_*.json."""
     path = Path(f"results/sa/sobol_{phase}_N{n}.json")
     if not path.exists():
-        raise click.ClickException(
-            f"File not found: {path}. Run `spatcoop run-batch` first."
-        )
+        raise click.ClickException(f"File not found: {path}. Run `spatcoop run-batch` first.")
     Si = json.loads(path.read_text())
     click.echo(f"\nSobol indices — {phase} risk, N={n}")
-    click.echo(
-        f"{'Parameter':>12}   {'S1':>8}   {'S1_CI':>8}   " f"{'ST':>8}   {'ST_CI':>8}"
-    )
+    click.echo(f"{'Parameter':>12}   {'S1':>8}   {'S1_CI':>8}   " f"{'ST':>8}   {'ST_CI':>8}")
     click.echo("─" * 58)
     for i, name in enumerate(Si["names"]):
         click.echo(
@@ -245,7 +241,7 @@ def analyse_cmd(phase, n):
     default="500,1000,1500",
     help="Comma-separated list of generations to snapshot.",
 )
-def snapshot_cmd(l, p_max, seed, n_gens, snaps):
+def snapshot_cmd(l, p_max, seed, n_gens, snaps):  # noqa: E741
     """Save strategy lattice snapshots to results/figures/spatial_snapshot.pdf."""
     from spatcoop.plots import plot_spatial_snapshot
 
@@ -281,17 +277,20 @@ def snapshot_cmd(l, p_max, seed, n_gens, snaps):
     multiple=True,
     default=("resilience",),
     show_default=True,
-    help=(
-        f"Output metric to analyse. Repeat for multiple. "
-        f"Valid: {', '.join(sorted(VALID_OUTPUT_KEYS))}"
-    ),
+    help=(f"Output metric to analyse. Repeat for multiple. " f"Valid: {', '.join(sorted(VALID_OUTPUT_KEYS))}"),
 )
 @click.option(
     "--method",
-    default="sobol",
-    type=click.Choice(["sobol", "morris"]),
+    default="pawn",
+    type=click.Choice(["sobol", "morris", "pawn", "delta"]),
     show_default=True,
-    help="Sobol: Saltelli design, O(N*(k+2)) runs. Morris: trajectory design, O(N*(k+1)) runs.",
+    help=(
+        "SA method. "
+        "pawn/delta: distribution-based, correct for bimodal outputs (recommended). "
+        "morris: elementary effects, good screening. "
+        "sobol: variance decomposition (avoid when output is bimodal). "
+        "Sample sizes: sobol=N*(k+2), morris=N*(k+1), pawn/delta=N."
+    ),
 )
 @click.option(
     "--N",
@@ -378,9 +377,7 @@ def sensitivity_run(
 
     for key in output_keys:
         if key not in VALID_OUTPUT_KEYS:
-            raise click.ClickException(
-                f"Unknown output key {key!r}. Valid: {', '.join(sorted(VALID_OUTPUT_KEYS))}"
-            )
+            raise click.ClickException(f"Unknown output key {key!r}. Valid: {', '.join(sorted(VALID_OUTPUT_KEYS))}")
 
     try:
         base_params = _build_base_params(fix_specs)
@@ -417,37 +414,48 @@ def sensitivity_run(
     help="Restrict to these keys (default: all keys in run_config.json).",
 )
 @click.option(
+    "--method",
+    default=None,
+    type=click.Choice(["sobol", "morris", "pawn", "delta"]),
+    help=(
+        "Analysis method override. When set with --recompute, applies this method "
+        "to the existing sample without resampling — useful to run PAWN on a Sobol sample. "
+        "Without --recompute, prints the result file for this method if it exists."
+    ),
+)
+@click.option(
     "--recompute/--no-recompute",
     default=False,
     help="Reload results from disk and recompute indices before printing.",
 )
-def sensitivity_analyse(out_dir, output_keys, recompute):
+def sensitivity_analyse(out_dir, output_keys, method, recompute):
     """Print SA indices from a saved sensitivity run.
 
     By default, reads already-saved {method}_{key}.json files.
     Pass --recompute to reload simulation results from disk and recompute indices
-    (useful after adding new seeds or to analyse additional output keys).
+    (useful after adding new seeds or to analyse with a different method).
+
+    Example — run PAWN on an existing Sobol sample (no new simulations):
+
+        spatcoop sensitivity analyse --out-dir results/sa/custom --method pawn --recompute
+
     """
     out_dir_path = Path(out_dir)
 
     if recompute:
         keys = list(output_keys) if output_keys else None
-        reanalyse_from_dir(out_dir_path, output_keys=keys)
+        reanalyse_from_dir(out_dir_path, output_keys=keys, method_override=method)
 
     # Discover result files to print
     config_path = out_dir_path / "run_config.json"
     if config_path.exists():
         config = json.loads(config_path.read_text())
-        method = config["method"]
+        effective_method = method or config["method"]
         keys_to_print = list(output_keys) if output_keys else config["output_keys"]
-        result_files = [out_dir_path / f"{method}_{k}.json" for k in keys_to_print]
+        result_files = [out_dir_path / f"{effective_method}_{k}.json" for k in keys_to_print]
     else:
         # Fall back: print all *.json files except run_config.json
-        result_files = [
-            p
-            for p in sorted(out_dir_path.glob("*.json"))
-            if p.name != "run_config.json"
-        ]
+        result_files = [p for p in sorted(out_dir_path.glob("*.json")) if p.name != "run_config.json"]
 
     missing = [p for p in result_files if not p.exists()]
     if missing:

@@ -1,14 +1,35 @@
-"""SALib wrapper: sample → batch → analyse (Sobol and Morris sensitivity analysis).
+"""SALib wrapper: sample → batch → analyse (Sobol, Morris, PAWN, Delta).
 
 Provides two interfaces:
 - Legacy functions (sample_params, analyse_sa, run_sa) for the fixed LINEAR/SIGMOID problems.
 - Dynamic functions (build_problem, sample_params_from_problem, run_sa_custom) that accept
   arbitrary parameter ranges from the CLI, running a separate analysis file per output metric.
+
+Recommended three-tier workflow for this model
+-----------------------------------------------
+1. morris  — cheap screen (O(N*(k+1)) runs). Identifies which parameters are non-influential
+             so they can be fixed before the expensive Sobol/PAWN sweep.
+2. sobol   — variance decomposition (S1, ST). Quantifies interactions (S1 vs ST gap).
+             Misleading as a *ranking* when output is bimodal, but the S1/ST split is the
+             cleanest way to separate direct effects from interactions.
+3. pawn    — headline ranking for `resilience` and other bounded, bimodal outputs.
+             Compares unconditional vs conditional CDFs (KS statistic); correctly sees
+             "fixing this parameter collapses the bimodality" even when variance barely moves.
+             PAWN analysis can be run on any existing (X, Y) — including a Sobol sample —
+             without resampling, via `sensitivity analyse --method pawn`.
+
+Why `resilience` is a worst case for pure Sobol
+  • resilience ∈ [0,1] piles at 0 and 1 near phase boundaries — bimodal, not Gaussian.
+  • Discontinuous C/D/C+D phase transitions (à la Ding) make the sweep bimodal by design.
+  • Stochastic fixation under near-neutral drift adds bimodality across seeds too.
+  Sobol ranks parameters by their share of total variance; PAWN ranks by distributional shift.
+  Both are informative — neither alone is sufficient.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
@@ -39,14 +60,12 @@ SIGMOID_PROBLEM = {
 
 # Numeric (float/int) ModelParams fields that can be varied in SA
 _NUMERIC_FIELDS: frozenset[str] = frozenset(
-    name
-    for name, field in ModelParams.__dataclass_fields__.items()
-    if field.type in (float, int)
+    name for name, field in ModelParams.__dataclass_fields__.items() if field.type in (float, int)
 )
 
 # Alias → (real param name, conversion fn)
 # T_over_E is more interpretable than T; converted via T = value * 5.0 (5 cells × E=1)
-_SA_PARAM_ALIASES: dict[str, tuple[str, object]] = {
+_SA_PARAM_ALIASES: dict[str, tuple[str, Callable[[float], float]]] = {
     "T_over_E": ("T", lambda v: float(v) * 5.0),
 }
 
@@ -127,7 +146,7 @@ def run_sa(
         dtype=np.float64,
     )
 
-    phase = "sigmoid" if base_params.risk_mode == SIGMOID else "linear"
+    phase = SIGMOID if base_params.risk_mode == SIGMOID else LINEAR
     out = Path(f"results/sa/sobol_{phase}_N{N}.json")
     return analyse_sa(problem, X, Y, out)
 
@@ -144,10 +163,7 @@ def build_problem(vary_specs: list[tuple[str, float, float]]) -> dict:
     valid = _NUMERIC_FIELDS | set(_SA_PARAM_ALIASES)
     for name, lo, hi in vary_specs:
         if name not in valid:
-            raise ValueError(
-                f"Cannot vary {name!r}. Valid numeric parameters:\n"
-                f"  {sorted(valid)}"
-            )
+            raise ValueError(f"Cannot vary {name!r}. Valid numeric parameters:\n" f"  {sorted(valid)}")
         if lo >= hi:
             raise ValueError(f"Range for {name!r} requires lo < hi, got [{lo}, {hi}]")
     return {
@@ -177,12 +193,14 @@ def sample_params_from_problem(
     method: str,
 ) -> tuple[list[ModelParams], np.ndarray]:
     """
-    Generate a ModelParams sample using Saltelli (Sobol) or Morris design.
+    Generate a ModelParams sample for the given SA method.
 
     Returns (params_list, X) where X is the raw sample matrix needed for analysis.
     Total sample sizes:
-      - sobol:  N * (num_vars + 2)
-      - morris: N * (num_vars + 1)  (N = number of trajectories, typically 5–15)
+      - sobol:  N * (num_vars + 2)  — Saltelli quasi-random design
+      - morris: N * (num_vars + 1)  — N trajectories (N = 5–15 typical)
+      - pawn:   N                   — Latin Hypercube; handles bimodal/non-normal outputs
+      - delta:  N                   — Latin Hypercube; moment-independent, handles bimodal outputs
     """
     if method == "sobol":
         X = saltelli.sample(problem, N, calc_second_order=False)
@@ -190,8 +208,13 @@ def sample_params_from_problem(
         from SALib.sample import morris as morris_sample  # noqa: PLC0415
 
         X = morris_sample.sample(problem, N)
+    elif method in ("pawn", "delta"):
+        # Distribution-based methods use LHS; total samples = N (no multiplier)
+        from SALib.sample import latin  # noqa: PLC0415
+
+        X = latin.sample(problem, N)
     else:
-        raise ValueError(f"method must be 'sobol' or 'morris', got {method!r}")
+        raise ValueError(f"method must be 'sobol', 'morris', 'pawn', or 'delta', got {method!r}")
 
     params_list = [_apply_row(problem["names"], row, base_params) for row in X]
     return params_list, X
@@ -211,19 +234,13 @@ def collect_Y_vectors(
 
     def _load_one(p: ModelParams) -> dict[str, float]:
         return {
-            key: float(
-                np.mean([load_result(result_path(p, s)).summary[key] for s in seeds])
-            )
-            for key in output_keys
+            key: float(np.mean([load_result(result_path(p, s)).summary[key] for s in seeds])) for key in output_keys
         }
 
-    rows = Parallel(n_jobs=n_jobs, prefer="threads")(
-        delayed(_load_one)(p)
-        for p in tqdm(params_list, desc="loading results", unit="param")
+    rows: list[dict[str, float]] = Parallel(n_jobs=n_jobs, prefer="threads")(  # type: ignore[assignment]
+        delayed(_load_one)(p) for p in tqdm(params_list, desc="loading results", unit="param")
     )
-    return {
-        key: np.array([r[key] for r in rows], dtype=np.float64) for key in output_keys
-    }
+    return {key: np.array([r[key] for r in rows], dtype=np.float64) for key in output_keys}
 
 
 def _compute_sobol(problem: dict, X: np.ndarray, Y: np.ndarray) -> dict:
@@ -246,6 +263,53 @@ def _compute_morris(problem: dict, X: np.ndarray, Y: np.ndarray) -> dict:
         "sigma": Si["sigma"].tolist(),
         "mu_star_conf": Si["mu_star_conf"].tolist(),
     }
+
+
+def _compute_pawn(problem: dict, X: np.ndarray, Y: np.ndarray) -> dict:
+    """
+    PAWN sensitivity index (Pianosi & Wagener 2015).
+
+    Compares unconditional vs conditional CDFs via KS statistic.
+    KS ∈ [0, 1]: higher = more influential. Correct for bimodal outputs because
+    it operates on the full distribution rather than just its variance.
+    """
+    from SALib.analyze import pawn as pawn_analyze  # noqa: PLC0415
+
+    Si = pawn_analyze.analyze(problem, X, Y, S=10, print_to_console=False)
+    return {
+        "KS": Si["median"].tolist(),  # median KS across conditioning intervals
+        "KS_min": Si["minimum"].tolist(),
+        "KS_mean": Si["mean"].tolist(),
+        "KS_max": Si["maximum"].tolist(),
+        "KS_conf": Si["CV"].tolist(),  # coefficient of variation across intervals
+    }
+
+
+def _compute_delta(problem: dict, X: np.ndarray, Y: np.ndarray) -> dict:
+    """
+    Borgonovo δ moment-independent sensitivity index (2007).
+
+    Measures the expected shift in the full output distribution when an input
+    is fixed. Correct for bimodal outputs; includes first-order Sobol S1 as a
+    by-product (for comparison).
+    """
+    from SALib.analyze import delta as delta_analyze  # noqa: PLC0415
+
+    Si = delta_analyze.analyze(problem, X, Y, print_to_console=False)
+    return {
+        "delta": Si["delta"].tolist(),
+        "delta_conf": Si["delta_conf"].tolist(),
+        "S1": Si["S1"].tolist(),
+        "S1_conf": Si["S1_conf"].tolist(),
+    }
+
+
+_COMPUTE_FN = {
+    "sobol": _compute_sobol,
+    "morris": _compute_morris,
+    "pawn": _compute_pawn,
+    "delta": _compute_delta,
+}
 
 
 def _save_sa_result(
@@ -286,7 +350,7 @@ def run_sa_custom(
     base_params: ModelParams,
     seeds: list[int],
     output_keys: list[str],
-    method: str = "sobol",
+    method: str = "pawn",
     n_jobs: int = -1,
     out_dir: Path = Path("results/sa/custom"),
     task_id: int | None = None,
@@ -302,6 +366,9 @@ def run_sa_custom(
     slice of the sample is simulated and the analysis step is skipped.  Run
     `spatcoop sensitivity analyse --out-dir <out_dir>` once all array tasks finish.
     """
+    if method not in _COMPUTE_FN:
+        raise ValueError(f"method must be one of {list(_COMPUTE_FN)}, got {method!r}")
+
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -350,7 +417,7 @@ def run_sa_custom(
     Y_dict = collect_Y_vectors(params_list, seeds, output_keys, n_jobs=n_jobs)
 
     # ── Compute SA indices in parallel across output keys ─────────────────────
-    _compute = _compute_sobol if method == "sobol" else _compute_morris
+    _compute = _COMPUTE_FN[method]
 
     def _analyse_key(key: str, Y: np.ndarray) -> Path:
         indices = _compute(problem, X, Y)
@@ -379,12 +446,23 @@ def run_sa_custom(
 def reanalyse_from_dir(
     out_dir: Path,
     output_keys: list[str] | None = None,
+    method_override: str | None = None,
 ) -> None:
     """
     Re-collect outputs and recompute SA indices from a saved run_config.json.
 
-    Useful when additional simulation results have been checkpointed since the
-    original run_sa_custom call, or to compute indices for new output keys.
+    Useful after additional simulation results are checkpointed, or to apply a
+    different analysis method to an existing sample.  For example, a Sobol run
+    can be reanalysed with PAWN (no resampling needed — PAWN's KS statistic
+    works on any (X, Y) pair):
+
+        spatcoop sensitivity analyse --out-dir results/sa/custom --method pawn --recompute
+
+    Args:
+        out_dir:         Directory containing run_config.json and sample_X.npy.
+        output_keys:     Restrict to these keys (default: all keys in run_config).
+        method_override: Apply this analysis method instead of the one stored in
+                         run_config.json.  The sample X is reused unchanged.
     """
     out_dir = Path(out_dir)
     config_path = out_dir / "run_config.json"
@@ -392,7 +470,11 @@ def reanalyse_from_dir(
         raise FileNotFoundError(f"No run_config.json found in {out_dir}")
 
     config = json.loads(config_path.read_text())
-    method = config["method"]
+    sample_method = config["method"]  # method used for sampling
+    method = method_override or sample_method  # method used for analysis
+    if method not in _COMPUTE_FN:
+        raise ValueError(f"method must be one of {list(_COMPUTE_FN)}, got {method!r}")
+
     N = config["N"]
     problem = config["problem"]
     seeds = config["seeds"]
@@ -400,18 +482,15 @@ def reanalyse_from_dir(
     base_params = ModelParams(**config["base_params"])
     X = np.load(out_dir / "sample_X.npy")
 
-    params_list = [
-        _apply_row(problem["names"], X[i], base_params) for i in range(len(X))
-    ]
+    params_list = [_apply_row(problem["names"], X[i], base_params) for i in range(len(X))]
 
-    print(f"Re-analysing {out_dir} ({method}, {len(params_list)} samples, keys={keys})")
+    label = method if method == sample_method else f"{method} (sample: {sample_method})"
+    print(f"Re-analysing {out_dir} ({label}, {len(params_list)} samples, keys={keys})")
     Y_dict = collect_Y_vectors(params_list, seeds, keys)
-    _compute = _compute_sobol if method == "sobol" else _compute_morris
+    _compute = _COMPUTE_FN[method]
 
     for key, Y in Y_dict.items():
         indices = _compute(problem, X, Y)
         out_path = out_dir / f"{method}_{key}.json"
-        _save_sa_result(
-            out_path, method, key, problem, N, len(X), len(seeds), base_params, indices
-        )
+        _save_sa_result(out_path, method, key, problem, N, len(X), len(seeds), base_params, indices)
         print(f"  Saved: {out_path}")
