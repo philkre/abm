@@ -23,7 +23,6 @@ from spatcoop.analysis import (
     load_all_results,
     summary_table,
     coop_fraction_timeseries,
-    moran_i_strategy,
 )
 
 FIGURES_DIR = Path("results/figures")
@@ -209,7 +208,7 @@ def plot_spatial_snapshot(
     norm = matplotlib.colors.BoundaryNorm(bounds, cmap.N)
 
     for ax, (gen, strat) in zip(axes, snaps):
-        im = ax.imshow(strat, cmap=cmap, norm=norm, interpolation="nearest")
+        ax.imshow(strat, cmap=cmap, norm=norm, interpolation="nearest")
         ax.set_title(f"Gen {gen}")
         ax.axis("off")
 
@@ -218,7 +217,7 @@ def plot_spatial_snapshot(
 
     labels = ["D (defector)", "UC (unconditional)", "CC (conditional)"]
     colors = ["#e74c3c", "#2ecc71", "#3498db"]
-    patches = [mpatches.Patch(color=c, label=l) for c, l in zip(colors, labels)]
+    patches = [mpatches.Patch(color=c, label=lb) for c, lb in zip(colors, labels)]
     fig.legend(handles=patches, loc="lower center", ncol=3, fontsize=8, bbox_to_anchor=(0.5, -0.02))
     fig.suptitle("Strategy spatial distribution", y=1.02)
     fig.tight_layout()
