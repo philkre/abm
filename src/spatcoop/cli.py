@@ -469,5 +469,33 @@ def sensitivity_analyse(out_dir, output_keys, method, recompute):
     click.echo()
 
 
+@cli.command("param-sweep")
+@click.option("--L", default=50, type=int, show_default=True)
+@click.option("--n-gens", default=1500, type=int, show_default=True)
+@click.option("--n-seeds", default=8, type=int, show_default=True)
+@click.option("--n-jobs", default=-1, type=int, show_default=True, help="-1 = all CPUs.")
+@click.option("--n-points", default=21, type=int, show_default=True)
+@click.option(
+    "--risk-mode",
+    default="linear",
+    type=click.Choice(["linear", "sigmoid"]),
+    show_default=True,
+)
+def param_sweep_cmd(l, n_gens, n_seeds, n_jobs, n_points, risk_mode):
+    """Run 1D sweeps of delta, gamma, eta and plot against resilience, mean_env, and flood."""
+    from spatcoop.param_sweep import run_param_sweeps
+
+    # Base parameters: delta, gamma, eta will be overwritten inside run_param_sweeps.
+    base = ModelParams(L=l, n_gens=n_gens, risk_mode=risk_mode)
+    seeds = list(range(n_seeds))
+
+    click.echo(
+        f"Running param sweeps: L={l}, n_gens={n_gens}, "
+        f"n_seeds={n_seeds}, n_points={n_points}, risk_mode={risk_mode}"
+    )
+    run_param_sweeps(base=base, seeds=seeds, n_jobs=n_jobs, n_points=n_points)
+    click.echo("Figures saved to results/figures/.")
+
+
 if __name__ == "__main__":
     cli()
