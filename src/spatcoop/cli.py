@@ -321,13 +321,38 @@ def snapshot_cmd(l, p_max, seed, n_gens, snaps):
     show_default=True,
     help="Directory for run_config.json, sample_X.npy, and per-key result files.",
 )
+@click.option(
+    "--task-id",
+    default=None,
+    type=int,
+    help="SLURM array task index (0-based). Simulates only the corresponding slice.",
+)
+@click.option(
+    "--n-tasks",
+    default=None,
+    type=int,
+    help="Total SLURM array tasks. Required when --task-id is set.",
+)
 def sensitivity_run(
-    vary_specs, fix_specs, output_keys, method, n, n_seeds, n_jobs, out_dir
+    vary_specs,
+    fix_specs,
+    output_keys,
+    method,
+    n,
+    n_seeds,
+    n_jobs,
+    out_dir,
+    task_id,
+    n_tasks,
 ):
     """Run a custom sensitivity analysis sweep.
 
     Each output key gets its own result file: {out_dir}/{method}_{key}.json
     Simulations are checkpointed — re-running skips already-computed results.
+
+    SLURM array jobs: pass --task-id $SLURM_ARRAY_TASK_ID and --n-tasks to
+    distribute the sample across nodes. Run `sensitivity analyse --recompute`
+    once all tasks finish.
 
     Example:
 
@@ -342,6 +367,9 @@ def sensitivity_run(
         --method sobol --N 32 --n-seeds 20
 
     """
+    if (task_id is None) != (n_tasks is None):
+        raise click.ClickException("--task-id and --n-tasks must be set together.")
+
     # Parse and validate inputs
     try:
         parsed_vary = [_parse_vary_spec(s) for s in vary_specs]
@@ -369,6 +397,8 @@ def sensitivity_run(
         method=method,
         n_jobs=n_jobs,
         out_dir=Path(out_dir),
+        task_id=task_id,
+        n_tasks=n_tasks,
     )
 
 

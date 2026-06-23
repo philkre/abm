@@ -13,6 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
+from joblib import Parallel, delayed
 from SALib.sample import saltelli
 from SALib.analyze import sobol
 from tqdm import tqdm
@@ -200,14 +201,29 @@ def collect_Y_vectors(
     params_list: list[ModelParams],
     seeds: list[int],
     output_keys: list[str],
+    n_jobs: int = -1,
 ) -> dict[str, np.ndarray]:
-    """Load saved results, average over seeds, return {output_key: Y_array}."""
-    Y: dict[str, list[float]] = {key: [] for key in output_keys}
-    for p in tqdm(params_list, desc="loading results", unit="param"):
-        for key in output_keys:
-            vals = [load_result(result_path(p, s)).summary[key] for s in seeds]
-            Y[key].append(float(np.mean(vals)))
-    return {key: np.array(v, dtype=np.float64) for key, v in Y.items()}
+    """Load saved results, average over seeds, return {output_key: Y_array}.
+
+    Uses parallel I/O (joblib threads) over parameter points — each worker loads
+    all seeds for one point and returns a dict of per-key means.
+    """
+
+    def _load_one(p: ModelParams) -> dict[str, float]:
+        return {
+            key: float(
+                np.mean([load_result(result_path(p, s)).summary[key] for s in seeds])
+            )
+            for key in output_keys
+        }
+
+    rows = Parallel(n_jobs=n_jobs, prefer="threads")(
+        delayed(_load_one)(p)
+        for p in tqdm(params_list, desc="loading results", unit="param")
+    )
+    return {
+        key: np.array([r[key] for r in rows], dtype=np.float64) for key in output_keys
+    }
 
 
 def _compute_sobol(problem: dict, X: np.ndarray, Y: np.ndarray) -> dict:
@@ -256,6 +272,14 @@ def _save_sa_result(
     out_path.write_text(json.dumps(result, indent=2))
 
 
+def _task_slice(n_total: int, task_id: int, n_tasks: int) -> tuple[int, int]:
+    """Return (lo, hi) slice indices for one SLURM array task."""
+    chunk = n_total // n_tasks
+    lo = task_id * chunk
+    hi = lo + chunk if task_id < n_tasks - 1 else n_total
+    return lo, hi
+
+
 def run_sa_custom(
     vary_specs: list[tuple[str, float, float]],
     N: int,
@@ -265,27 +289,27 @@ def run_sa_custom(
     method: str = "sobol",
     n_jobs: int = -1,
     out_dir: Path = Path("results/sa/custom"),
+    task_id: int | None = None,
+    n_tasks: int | None = None,
 ) -> None:
     """
     Full SA pipeline: build problem → sample → run sims → collect outputs → analyse.
 
     Saves one result file per output key: {out_dir}/{method}_{output_key}.json
     Also saves run_config.json and sample_X.npy for later re-analysis.
+
+    SLURM array mode: when task_id and n_tasks are both set, only the corresponding
+    slice of the sample is simulated and the analysis step is skipped.  Run
+    `spatcoop sensitivity analyse --out-dir <out_dir>` once all array tasks finish.
     """
     out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     problem = build_problem(vary_specs)
     params_list, X = sample_params_from_problem(problem, N, base_params, method)
-
     n_samples = len(params_list)
-    print(f"SA: method={method}, N={N}, {n_samples} model runs × {len(seeds)} seeds")
-    print(f"  Varying: {list(zip(problem['names'], problem['bounds']))}")
-    print(f"  Output keys: {output_keys}")
 
-    # Run simulations (idempotent: skips already-computed checkpoints)
-    run_batch(params_list, seeds, n_jobs=n_jobs)
-
-    # Persist config and sample matrix so analysis can be repeated without re-running
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # ── Persist config + sample (idempotent; all array tasks write the same content) ──
     config = {
         "method": method,
         "N": N,
@@ -294,14 +318,41 @@ def run_sa_custom(
         "output_keys": output_keys,
         "base_params": asdict(base_params),
     }
-    (out_dir / "run_config.json").write_text(json.dumps(config, indent=2))
-    np.save(out_dir / "sample_X.npy", X)
+    config_path = out_dir / "run_config.json"
+    if not config_path.exists():
+        config_path.write_text(json.dumps(config, indent=2))
+    sample_path = out_dir / "sample_X.npy"
+    if not sample_path.exists():
+        np.save(sample_path, X)
 
-    # Compute SA indices per output key and save to separate files
-    Y_dict = collect_Y_vectors(params_list, seeds, output_keys)
+    # ── Determine which param points this task is responsible for ──────────────
+    if task_id is not None and n_tasks is not None:
+        lo, hi = _task_slice(n_samples, task_id, n_tasks)
+        run_slice = params_list[lo:hi]
+        print(
+            f"SA array task {task_id + 1}/{n_tasks}: "
+            f"simulating param points [{lo}:{hi}] ({len(run_slice)} of {n_samples})"
+        )
+        run_batch(run_slice, seeds, n_jobs=n_jobs)
+        print(f"  Done. When all {n_tasks} tasks finish, run:")
+        print(f"    spatcoop sensitivity analyse --out-dir {out_dir} --recompute")
+        return
+
+    run_slice = params_list
+    print(f"SA: method={method}, N={N}, {n_samples} model runs × {len(seeds)} seeds")
+    print(f"  Varying: {list(zip(problem['names'], problem['bounds']))}")
+    print(f"  Output keys: {output_keys}")
+
+    # ── Simulate (idempotent checkpoints) ─────────────────────────────────────
+    run_batch(run_slice, seeds, n_jobs=n_jobs)
+
+    # ── Collect Y vectors (parallel I/O) ──────────────────────────────────────
+    Y_dict = collect_Y_vectors(params_list, seeds, output_keys, n_jobs=n_jobs)
+
+    # ── Compute SA indices in parallel across output keys ─────────────────────
     _compute = _compute_sobol if method == "sobol" else _compute_morris
 
-    for key, Y in Y_dict.items():
+    def _analyse_key(key: str, Y: np.ndarray) -> Path:
         indices = _compute(problem, X, Y)
         out_path = out_dir / f"{method}_{key}.json"
         _save_sa_result(
@@ -315,7 +366,14 @@ def run_sa_custom(
             base_params,
             indices,
         )
-        print(f"  Saved: {out_path}")
+        return out_path
+
+    saved = Parallel(
+        n_jobs=min(len(output_keys), n_jobs if n_jobs > 0 else len(output_keys)),
+        prefer="threads",
+    )(delayed(_analyse_key)(key, Y) for key, Y in Y_dict.items())
+    for path in saved:
+        print(f"  Saved: {path}")
 
 
 def reanalyse_from_dir(
