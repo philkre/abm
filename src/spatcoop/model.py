@@ -73,7 +73,9 @@ def _flood_prob(env: np.ndarray, p: ModelParams) -> np.ndarray:
     return np.clip(prob + p.p_min, p.p_min, 1.0).astype(np.float32)
 
 
-def _step(state: dict, p: ModelParams, rng: np.random.Generator, gen: int) -> tuple[dict, dict]:
+def _step(
+    state: dict, p: ModelParams, rng: np.random.Generator, gen: int
+) -> tuple[dict, dict]:
     """Advance state by one generation. Mutates state in-place; also returns it."""
     s = state["strategy"]
     e = state["env"]
@@ -123,10 +125,23 @@ def _step(state: dict, p: ModelParams, rng: np.random.Generator, gen: int) -> tu
     # ── Step 5: Wealth and fitness ────────────────────────────────────────────
     pg_return = p.R * pool / 5.0
     w_before = w.copy()
-    w_new = (1.0 + p.g) * w - contrib - disaster * p.ell * w + pg_return
-    w_new = np.maximum(w_new, 0.0)
+    loss = disaster * p.ell * w
 
-    pi = p.g * w_before - contrib - disaster * p.ell * w_before + pg_return
+    if p.wealth_mode == "ou":
+        # Wiener-process-with-drift wealth: additive income b minus contribution
+        # minus fractional flood loss (mean-reverting → Ornstein–Uhlenbeck),
+        # plus an optional idiosyncratic Gaussian shock.
+        w_new = w + p.b - contrib - loss + pg_return
+        if p.sigma > 0.0:
+            w_new = w_new + rng.normal(0.0, p.sigma, (L, L)).astype(np.float32)
+        pi = p.b - contrib - disaster * p.ell * w_before + pg_return
+    elif p.wealth_mode == "multiplicative":
+        w_new = (1.0 + p.g) * w - contrib - loss + pg_return
+        pi = p.g * w_before - contrib - disaster * p.ell * w_before + pg_return
+    else:
+        raise ValueError(f"Unknown wealth_mode: {p.wealth_mode!r}")
+
+    w_new = np.maximum(w_new, 0.0)
     phi_new = (1.0 - p.kappa) * phi + pi
 
     state["wealth"] = w_new
@@ -157,7 +172,9 @@ def _step(state: dict, p: ModelParams, rng: np.random.Generator, gen: int) -> tu
     return state, obs
 
 
-def _observe(state: dict, pool: np.ndarray, disaster: np.ndarray, p: ModelParams) -> dict:
+def _observe(
+    state: dict, pool: np.ndarray, disaster: np.ndarray, p: ModelParams
+) -> dict:
     s = state["strategy"]
     return {
         "n_D": int((s == D).sum()),
@@ -178,7 +195,12 @@ def _moran_i(strategy: np.ndarray) -> float:
     x = (strategy == UC).astype(np.float32)
     x_mean = float(x.mean())
     x_dev = x - x_mean
-    x_lag = (np.roll(x, 1, axis=0) + np.roll(x, -1, axis=0) + np.roll(x, 1, axis=1) + np.roll(x, -1, axis=1)) / 4.0
+    x_lag = (
+        np.roll(x, 1, axis=0)
+        + np.roll(x, -1, axis=0)
+        + np.roll(x, 1, axis=1)
+        + np.roll(x, -1, axis=1)
+    ) / 4.0
     num = float((x_dev * (x_lag - x_mean)).sum())
     denom = float((x_dev**2).sum())
     n = strategy.size
@@ -192,9 +214,22 @@ def run_episode(p: ModelParams, seed: int, progress: bool = False) -> RunResult:
     """Run one complete model episode and return a RunResult."""
     rng = np.random.default_rng(seed)
     state = _init_state(p, rng)
-    ts = {k: [] for k in ["n_D", "n_UC", "n_CC", "mean_wealth", "flood_rate", "mean_env", "resilience"]}
+    ts = {
+        k: []
+        for k in [
+            "n_D",
+            "n_UC",
+            "n_CC",
+            "mean_wealth",
+            "flood_rate",
+            "mean_env",
+            "resilience",
+        ]
+    }
 
-    for gen in tqdm(range(p.n_gens), desc=f"seed={seed}", unit="gen", disable=not progress):
+    for gen in tqdm(
+        range(p.n_gens), desc=f"seed={seed}", unit="gen", disable=not progress
+    ):
         state, obs = _step(state, p, rng, gen)
         for k, v in obs.items():
             ts[k].append(v)

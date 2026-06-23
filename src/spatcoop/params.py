@@ -25,9 +25,17 @@ class ModelParams:
     c_bar: float = 0.75  # cooperator contribution (E = 1.0 as unit)
     T: float = 3.75  # threshold = 0.75 * 5 * E
     R: float = 0.0  # public-good multiplier; 0 = pure cost
-    g: float = 0.015  # multiplicative wealth growth rate (Kolen)
     w0: float = 1.0  # initial wealth
     mu: float = 0.01  # mutation rate
+
+    # Wealth process
+    # "ou": Wiener-with-drift — additive income b, fractional flood loss
+    #       (mean-reverting → Ornstein–Uhlenbeck), optional Gaussian shock sigma.
+    # "multiplicative": legacy (1+g)·w growth.
+    wealth_mode: str = "ou"
+    b: float = 1.0  # OU additive income drift (E units)
+    sigma: float = 0.0  # OU idiosyncratic volatility (per-round Gaussian shock)
+    g: float = 0.015  # multiplicative wealth growth rate (Kolen); mult mode only
 
     # Risk
     risk_mode: str = LINEAR

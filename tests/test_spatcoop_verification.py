@@ -57,6 +57,7 @@ def test_wellmixed_collapses_to_tragedy():
         gamma=0.03,
         p_max=0.5,
         risk_mode=LINEAR,
+        wealth_mode="multiplicative",  # tragedy is the multiplicative prediction
     )
     r = run_episode(p, seed=0)
     uc_frac = r.summary["n_UC"] / (p.L**2)
@@ -270,3 +271,105 @@ def test_numba_kernel_matches_numpy_oracle():
     out_numpy = np.where(rand_acc < fermi, s_j, strategy).astype(np.int8)
 
     assert np.array_equal(out_numba, out_numpy)
+
+
+# ── G. OU wealth model ───────────────────────────────────────────────────────
+
+
+def test_ou_additive_income_drift():
+    # OU: additive income b, no multiplicative growth. All-UC is immune (pool=T),
+    # so no flood: w' = w0 + b − c̄.
+    L = 6
+    p = ModelParams(
+        L=L,
+        wealth_mode="ou",
+        b=1.0,
+        sigma=0.0,
+        R=0.0,
+        frozen_strategies=True,
+        mu=0.0,
+        w0=1.0,
+    )
+    strat = np.full((L, L), UC, dtype=np.int8)
+    state, rng = _state_with(p, strat)
+    _step(state, p, rng, 0)
+    assert np.allclose(state["wealth"], p.w0 + p.b - p.c_bar)
+
+
+def test_multiplicative_mode_preserved():
+    # The legacy multiplicative update remains available behind the flag.
+    L = 6
+    p = ModelParams(
+        L=L,
+        wealth_mode="multiplicative",
+        g=0.015,
+        R=0.0,
+        frozen_strategies=True,
+        mu=0.0,
+        w0=1.0,
+    )
+    strat = np.full((L, L), UC, dtype=np.int8)
+    state, rng = _state_with(p, strat)
+    _step(state, p, rng, 0)
+    assert np.allclose(state["wealth"], (1.0 + p.g) * p.w0 - p.c_bar)
+
+
+def test_ou_wealth_mean_reverts():
+    # All-defector, frozen environment (δ=γ=η=0 ⇒ e≡0 ⇒ d=p_max/2): OU wealth
+    # mean-reverts to b/(dℓ), the stationary mean of the process.
+    L = 30
+    p = ModelParams(
+        L=L,
+        wealth_mode="ou",
+        b=1.0,
+        sigma=0.0,
+        delta=0.0,
+        gamma=0.0,
+        eta=0.0,
+        p_max=0.5,
+        ell=0.34,
+        R=0.0,
+        frozen_strategies=True,
+        mu=0.0,
+        w0=1.0,
+    )
+    rng = np.random.default_rng(3)
+    state = _init_state(p, rng)
+    state["strategy"] = np.full((L, L), D, dtype=np.int8)
+    means = []
+    for gen in range(400):
+        _step(state, p, rng, gen)
+        means.append(float(state["wealth"].mean()))
+    d = p.p_max / 2.0
+    target = p.b / (d * p.ell)  # ≈ 11.8
+    final = float(np.mean(means[-200:]))
+    assert 0.6 * target < final < 1.4 * target
+
+
+def test_ou_wellmixed_collapses_but_slower_at_low_beta():
+    # IMPORTANT: the OU wealth gap that would cancel the cooperation cost builds
+    # too slowly (rate ~dℓ) to beat imitation (rate ~β·c̄), and fitness is a
+    # discounted accumulation that locks in the early defector advantage. So the
+    # neutral fixed point is dynamically unreachable: well-mixed OU still
+    # collapses to tragedy at the default β. Slower imitation (low β) retains
+    # more cooperation but does not rescue it — the timescale-race signature.
+    base = dict(
+        L=40,
+        n_gens=400,
+        measure_window=100,
+        well_mixed=True,
+        initial_mix="equal",
+        mu=0.01,
+        delta=0.03,
+        gamma=0.03,
+        p_max=0.5,
+        eta=0.0,
+        wealth_mode="ou",
+        b=1.0,
+    )
+    hi = run_episode(ModelParams(**base, beta=2.0), seed=0)
+    lo = run_episode(ModelParams(**base, beta=0.1), seed=0)
+    uc_hi = hi.summary["n_UC"] / (40**2)
+    uc_lo = lo.summary["n_UC"] / (40**2)
+    assert uc_hi < 0.1  # default-β OU collapses (no neutral rescue)
+    assert uc_lo > uc_hi  # slower imitation retains more (timescale race)
