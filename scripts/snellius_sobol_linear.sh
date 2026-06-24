@@ -24,7 +24,7 @@
 #SBATCH --job-name=spatcoop_sobol_linear
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=192
 #SBATCH --time=06:00:00
 #SBATCH --partition=genoa
 #SBATCH --output=logs/%j.out
@@ -56,6 +56,7 @@ uv run spatcoop sensitivity run \
     --fix L:200 \
     --fix sigma:0.1 \
     --fix eta:0.03 \
+    --fix initial_mix:thirds \
     --output-key resilience \
     --output-key flood_rate \
     --output-key mean_env \
