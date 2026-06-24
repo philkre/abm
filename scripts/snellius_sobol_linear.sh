@@ -50,7 +50,7 @@ uv run spatcoop sensitivity run \
     --vary T_over_E:0.4:0.9 \
     --vary ell:0.0:1.0 \
     --method sobol \
-    --N 512 \
+    --N 5120 \
     --n-seeds 20 \
     --n-jobs "$SLURM_CPUS_PER_TASK" \
     --fix L:200 \
