@@ -1,7 +1,10 @@
 """
-Parameter sweeps for delta, gamma, and eta.
+Parameter sweeps for delta, gamma, and eta. 
+Plots different values in [0,1] of chosen parameters against flood_rate, mean_env, and resilience.
+(might want to change parameter range for gamma and eta to [0.0, 0.5])
 
 uv run spatcoop param-sweep
+rm results/raw/*.npz
 """
 
 import numpy as np
@@ -78,11 +81,11 @@ def run_param_sweeps(
     n_jobs: number of parallel jobs
     n_points: number of gridpoints in [0,1]
     """
-    values = np.linspace(0.0, 1.0, n_points)
-    for param_name in ["delta", "gamma", "eta"]:
-        sweep(base, param_name, values, seeds, n_jobs=n_jobs)
 
-if __name__ == "__main__":
-    base = ModelParams()
-    seeds = list(range(8))
-    run_param_sweeps(base, seeds, n_jobs=-1, n_points=21)
+    delta_values = np.linspace(0.0, 1.0, n_points)
+    gamma_values = np.linspace(0.0, 0.1, n_points)
+    eta_values   = np.linspace(0.0, 0.1, n_points)
+
+    sweep(base, "delta", delta_values, seeds, n_jobs=n_jobs)
+    sweep(base, "gamma", gamma_values, seeds, n_jobs=n_jobs)
+    sweep(base, "eta",   eta_values,   seeds, n_jobs=n_jobs)
