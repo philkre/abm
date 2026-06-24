@@ -5,9 +5,11 @@
 # Fixed (non-default): L=200, sigma=0.1, eta=0.03 (headline A+ run).
 #   For ablation (no flood-env feedback): change --fix eta:0.03 to --fix eta:0.0
 #   For compute-heavy sweeps: change --fix L:200 to --fix L:150
-# Method: PAWN (Latin Hypercube, N=500 total samples).
-#   Total episodes = N * n_seeds = 500 * 20 = 10,000.
-#   At L=200, 1500 gens, 16 CPUs: estimated ~35–55 min wall time.
+# Method: PAWN (Latin Hypercube, N=3072 total samples).
+#   N=3072 = 512 * (4+2), matching Saltelli-equivalent coverage per Debraj's formula.
+#   Total episodes = N * n_seeds = 3072 * 20 = 61,440.
+#   At L=200, 1500 gens, 16 CPUs: estimated ~4–6 h wall time.
+#   Prefer snellius_sobol_linear.sh for Sobol indices; use this for PAWN-specific diagnostics.
 #
 # Why single-node (not array) for PAWN:
 #   PAWN uses Latin Hypercube sampling, which is NOT deterministic without a
@@ -26,7 +28,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --time=02:00:00
+#SBATCH --time=08:00:00
 #SBATCH --partition=genoa
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.err
@@ -51,7 +53,7 @@ uv run spatcoop sensitivity run \
     --vary T_over_E:0.4:0.9 \
     --vary ell:0.0:1.0 \
     --method pawn \
-    --N 500 \
+    --N 3072 \
     --n-seeds 20 \
     --n-jobs "$SLURM_CPUS_PER_TASK" \
     --fix L:200 \
