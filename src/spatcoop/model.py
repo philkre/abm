@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from dataclasses import asdict
-import json
 
 import numpy as np
 from tqdm import tqdm
 
-from spatcoop.params import ModelParams, D, UC, CC, LINEAR, SIGMOID
+from spatcoop.params import ModelParams, D, UC, CC, LINEAR
 from spatcoop.kernel import focal_sum, fermi_step
 
 # ── Output types ──────────────────────────────────────────────────────────────
@@ -73,9 +71,7 @@ def _flood_prob(env: np.ndarray, p: ModelParams) -> np.ndarray:
     return np.clip(prob + p.p_min, p.p_min, 1.0).astype(np.float32)
 
 
-def _step(
-    state: dict, p: ModelParams, rng: np.random.Generator, gen: int
-) -> tuple[dict, dict]:
+def _step(state: dict, p: ModelParams, rng: np.random.Generator, gen: int) -> tuple[dict, dict]:
     """Advance state by one generation. Mutates state in-place; also returns it."""
     s = state["strategy"]
     e = state["env"]
@@ -172,9 +168,7 @@ def _step(
     return state, obs
 
 
-def _observe(
-    state: dict, pool: np.ndarray, disaster: np.ndarray, p: ModelParams
-) -> dict:
+def _observe(state: dict, pool: np.ndarray, disaster: np.ndarray, p: ModelParams) -> dict:
     s = state["strategy"]
     return {
         "n_D": int((s == D).sum()),
@@ -195,15 +189,9 @@ def _moran_i(strategy: np.ndarray) -> float:
     x = (strategy == UC).astype(np.float32)
     x_mean = float(x.mean())
     x_dev = x - x_mean
-    x_lag = (
-        np.roll(x, 1, axis=0)
-        + np.roll(x, -1, axis=0)
-        + np.roll(x, 1, axis=1)
-        + np.roll(x, -1, axis=1)
-    ) / 4.0
+    x_lag = (np.roll(x, 1, axis=0) + np.roll(x, -1, axis=0) + np.roll(x, 1, axis=1) + np.roll(x, -1, axis=1)) / 4.0
     num = float((x_dev * (x_lag - x_mean)).sum())
     denom = float((x_dev**2).sum())
-    n = strategy.size
     return float(num / denom) if denom > 0 else 0.0
 
 
@@ -227,9 +215,7 @@ def run_episode(p: ModelParams, seed: int, progress: bool = False) -> RunResult:
         ]
     }
 
-    for gen in tqdm(
-        range(p.n_gens), desc=f"seed={seed}", unit="gen", disable=not progress
-    ):
+    for gen in tqdm(range(p.n_gens), desc=f"seed={seed}", unit="gen", disable=not progress):
         state, obs = _step(state, p, rng, gen)
         for k, v in obs.items():
             ts[k].append(v)

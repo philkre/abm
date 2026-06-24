@@ -1,3 +1,5 @@
+@sources/debraj_meeting.md
+@sources/param_overview.md
 @sources/paper_weitz2016.md
 @sources/paper_jonsson2025.md
 @sources/paper_ding2024.md

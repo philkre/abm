@@ -1,7 +1,8 @@
 """ModelParams dataclass and strategy/risk-mode constants."""
 
-from dataclasses import dataclass, asdict, field
-import hashlib, json
+from dataclasses import dataclass, asdict
+import hashlib
+import json
 
 # Strategy integer codes — used throughout as int8 arrays
 D = 0
