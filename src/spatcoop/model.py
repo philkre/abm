@@ -170,15 +170,44 @@ def _step(state: dict, p: ModelParams, rng: np.random.Generator, gen: int) -> tu
 
 def _observe(state: dict, pool: np.ndarray, disaster: np.ndarray, p: ModelParams) -> dict:
     s = state["strategy"]
+    w = state["wealth"]
+    e = state["env"]
+
+    cc_mask = s == CC
+    cc_contrib_frac = (
+        float(state["contrib"][cc_mask].mean() / p.c_bar) if cc_mask.any() else float("nan")
+    )
+
     return {
         "n_D": int((s == D).sum()),
         "n_UC": int((s == UC).sum()),
         "n_CC": int((s == CC).sum()),
-        "mean_wealth": float(state["wealth"].mean()),
+        "mean_wealth": float(w.mean()),
         "flood_rate": float(disaster.mean()),
-        "mean_env": float(state["env"].mean()),
+        "mean_env": float(e.mean()),
         "resilience": float((pool >= p.T).mean()),
+        # Extended order parameters
+        "env_std": float(e.std()),
+        "mean_pool_gap": float(np.maximum(p.T - pool, 0.0).mean() / p.T),
+        "near_miss_frac": float(((pool >= 0.9 * p.T) & (pool < p.T)).mean()),
+        "gini_wealth": _gini(w),
+        "cc_contrib_frac": cc_contrib_frac,
     }
+
+
+# ── Gini coefficient ──────────────────────────────────────────────────────────
+
+
+def _gini(w: np.ndarray) -> float:
+    """Gini coefficient of the wealth distribution (0 = equal, 1 = maximal inequality)."""
+    flat = w.ravel().astype(np.float64)
+    total = flat.sum()
+    if total == 0.0:
+        return 0.0
+    flat = np.sort(flat)
+    n = len(flat)
+    idx = np.arange(1, n + 1, dtype=np.float64)
+    return float((2.0 * (idx * flat).sum()) / (n * total) - (n + 1.0) / n)
 
 
 # ── Moran's I ─────────────────────────────────────────────────────────────────
@@ -202,16 +231,12 @@ def run_episode(p: ModelParams, seed: int, progress: bool = False) -> RunResult:
     """Run one complete model episode and return a RunResult."""
     rng = np.random.default_rng(seed)
     state = _init_state(p, rng)
-    ts = {
+    ts: dict = {
         k: []
         for k in [
-            "n_D",
-            "n_UC",
-            "n_CC",
-            "mean_wealth",
-            "flood_rate",
-            "mean_env",
-            "resilience",
+            "n_D", "n_UC", "n_CC",
+            "mean_wealth", "flood_rate", "mean_env", "resilience",
+            "env_std", "mean_pool_gap", "near_miss_frac", "gini_wealth", "cc_contrib_frac",
         ]
     }
 
@@ -222,8 +247,20 @@ def run_episode(p: ModelParams, seed: int, progress: bool = False) -> RunResult:
 
     ts = {k: np.array(v, dtype=np.float32) for k, v in ts.items()}
 
-    w = p.measure_window
-    summary = {k: float(ts[k][-w:].mean()) for k in ts}
+    mw = p.measure_window
+    summary: dict = {}
+    for k in ts:
+        arr = ts[k][-mw:]
+        summary[k] = float(np.nanmean(arr)) if not np.all(np.isnan(arr)) else float("nan")
+
     summary["moran_i"] = _moran_i(state["strategy"])
+
+    # Post-processed from full timeseries (no re-run needed)
+    uc_arr = ts["n_UC"].astype(np.float32)
+    diff = np.diff(uc_arr[len(uc_arr) // 2 :])
+    signs = np.sign(diff[diff != 0])
+    summary["uc_oscillation"] = float(np.sum(signs[1:] != signs[:-1])) if len(signs) > 1 else 0.0
+    summary["uc_flip_rate"] = float(np.abs(np.diff(uc_arr[-mw:])).mean()) / float(p.L**2)
+    summary["resilience_std"] = float(ts["resilience"][-mw:].std())
 
     return RunResult(params=p, seed=seed, timeseries=ts, summary=summary)
