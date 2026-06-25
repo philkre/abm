@@ -15,6 +15,7 @@ src/coop_disaster/  # Python ABM package (Fig 7 sweep)
   sweep.py          # run_sweep() — parallel UC proportion sweep
   plot.py           # plot_fig7()
   __main__.py       # CLI entry point (argparse)
+src/spatcoop/       # Performance SA pipeline (NumPy, SALib, Snellius-ready)
 src/spatial/        # Spatial threshold PGG on a Von Neumann lattice (Mesa 3.x)
   config.py         # ModelConfig dataclass + DEFAULT_CONFIG
   agents.py         # HouseholdAgent (UC / D strategies, CellAgent)
@@ -145,6 +146,39 @@ df = model.datacollector.get_model_vars_dataframe()
 | `mu` | 0.001 | Mutation probability per agent per step |
 | `n_steps` | 500 | Steps run by `spatial-run` |
 | `seed` | 42 | RNG seed |
+
+## spatcoop — sensitivity-analysis pipeline (src/spatcoop/)
+
+High-performance NumPy ABM with full SA workflow. Three strategies (UC / CC / D)
+on a periodic lattice; Ornstein-Uhlenbeck wealth; Sobol + PAWN sensitivity analysis
+via SALib; checkpoint system keyed on `ModelParams.hash()`.
+
+**Run a single episode:**
+
+```bash
+uv run spatcoop run-single --L 50 --n-gens 500 --seed 0
+```
+
+**Sensitivity analysis (Snellius):**
+
+```bash
+sbatch scripts/snellius_sobol_linear.sh   # Sobol S1/ST, L=200, curated OPs
+sbatch scripts/snellius_pawn_linear.sh    # PAWN KS, single-node
+```
+
+**Diagnostic plots after SA run:**
+
+```bash
+bash scripts/make_sa_plots.sh             # curated SA bar charts (local/login node)
+bash scripts/make_sa_plots_all.sh         # all 26 order-parameter bars (no re-sim)
+sbatch scripts/snellius_diagnostics.sh   # timeseries ± σ, spectra, lattice snapshots
+sbatch scripts/snellius_sweeps.sh        # 1-D param sweeps over δ/γ/η/λ/b/w0
+```
+
+**Order parameters tracked (26):** strategy counts, mean/Gini wealth, per-strategy
+wealth, flood rate, environment, resilience, payoffs, fitness, cooperation, spanning
+clusters, largest clusters, interface density, and `*_std` temporal volatility for
+each.
 
 ---
 

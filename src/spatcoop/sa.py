@@ -41,6 +41,7 @@ from tqdm import tqdm
 
 from spatcoop.params import ModelParams, LINEAR, SIGMOID
 from spatcoop.runner import run_batch, load_result, result_path
+from spatcoop.model import OBS_KEYS
 
 # ── Pre-defined SA problems (legacy, used by run-batch command) ────────────────
 
@@ -69,17 +70,13 @@ _SA_PARAM_ALIASES: dict[str, tuple[str, Callable[[float], float]]] = {
     "T_over_E": ("T", lambda v: float(v) * 5.0),
 }
 
-VALID_OUTPUT_KEYS: frozenset[str] = frozenset(
-    {
-        "n_D",
-        "n_UC",
-        "n_CC",
-        "mean_wealth",
-        "flood_rate",
-        "mean_env",
-        "resilience",
-        "moran_i",
-    }
+# Every summary statistic produced by run_episode is a valid SA target: each
+# observable (OBS_KEYS), its final-window std (`*_std`), and the post-processed
+# scalars added at the end of run_episode.
+VALID_OUTPUT_KEYS: frozenset[str] = (
+    frozenset(OBS_KEYS)
+    | frozenset(f"{k}_std" for k in OBS_KEYS)
+    | frozenset({"moran_i", "uc_oscillation", "uc_flip_rate"})
 )
 
 # ── Legacy functions ──────────────────────────────────────────────────────────
@@ -234,7 +231,8 @@ def collect_Y_vectors(
 
     def _load_one(p: ModelParams) -> dict[str, float]:
         return {
-            key: float(np.mean([load_result(result_path(p, s)).summary[key] for s in seeds])) for key in output_keys
+            key: float(np.mean([load_result(result_path(p, s)).summary[key] for s in seeds]))
+            for key in output_keys
         }
 
     rows: list[dict[str, float]] = Parallel(n_jobs=n_jobs, prefer="threads")(  # type: ignore[assignment]
