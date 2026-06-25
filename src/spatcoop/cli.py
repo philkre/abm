@@ -249,17 +249,25 @@ def analyse_cmd(phase, n):
 @click.option("--p-max", default=0.5, type=float, show_default=True)
 @click.option("--seed", default=0, type=int, show_default=True)
 @click.option("--n-gens", default=1500, type=int, show_default=True)
+@click.option("--eta", default=0.0, type=float, show_default=True)
+@click.option("--sigma", default=0.0, type=float, show_default=True)
+@click.option(
+    "--initial-mix",
+    default="equal",
+    type=click.Choice(["equal", "thirds"]),
+    show_default=True,
+)
 @click.option(
     "--snaps",
     default="500,1000,1500",
     help="Comma-separated list of generations to snapshot.",
 )
-def snapshot_cmd(l, p_max, seed, n_gens, snaps):  # noqa: E741
+def snapshot_cmd(l, p_max, seed, n_gens, eta, sigma, initial_mix, snaps):  # noqa: E741
     """Save strategy lattice snapshots to results/figures/spatial_snapshot.pdf."""
     from spatcoop.plots import plot_spatial_snapshot
 
     snap_gens = [int(g) for g in snaps.split(",")]
-    p = ModelParams(L=l, p_max=p_max, n_gens=n_gens)
+    p = ModelParams(L=l, p_max=p_max, n_gens=n_gens, eta=eta, sigma=sigma, initial_mix=initial_mix)
     click.echo(f"Generating snapshots at gens {snap_gens}...")
     path = plot_spatial_snapshot(p, seed=seed, snap_gens=snap_gens)
     click.echo(f"Saved → {path}")
@@ -445,19 +453,31 @@ def sensitivity_run(
     default=False,
     help="Reload results from disk and recompute indices before printing.",
 )
-def sensitivity_analyse(out_dir, output_keys, method, recompute):
+@click.option(
+    "--all-keys",
+    is_flag=True,
+    default=False,
+    help="Analyse every order parameter (all OBS_KEYS), not just the run_config keys.",
+)
+def sensitivity_analyse(out_dir, output_keys, method, recompute, all_keys):
     """Print SA indices from a saved sensitivity run.
 
     By default, reads already-saved {method}_{key}.json files.
     Pass --recompute to reload simulation results from disk and recompute indices
     (useful after adding new seeds or to analyse with a different method).
+    Pass --all-keys with --recompute to compute indices for every order parameter
+    from the existing checkpoints (no resampling) — feeds `plot-sa --all`.
 
     Example — run PAWN on an existing Sobol sample (no new simulations):
 
         spatcoop sensitivity analyse --out-dir results/sa/custom --method pawn --recompute
 
     """
+    from spatcoop.model import OBS_KEYS
+
     out_dir_path = Path(out_dir)
+    if all_keys:
+        output_keys = OBS_KEYS
 
     if recompute:
         keys = list(output_keys) if output_keys else None
@@ -492,49 +512,81 @@ def sensitivity_analyse(out_dir, output_keys, method, recompute):
 @click.option("--n-seeds", default=8, type=int, show_default=True)
 @click.option("--n-jobs", default=-1, type=int, show_default=True, help="-1 = all CPUs.")
 @click.option("--n-points", default=21, type=int, show_default=True)
+@click.option("--eta", default=0.0, type=float, show_default=True, help="Baseline η for non-η sweeps.")
+@click.option("--sigma", default=0.0, type=float, show_default=True)
+@click.option(
+    "--initial-mix",
+    default="equal",
+    type=click.Choice(["equal", "thirds"]),
+    show_default=True,
+    help="Use 'thirds' so CC agents (and the λ sweep) are meaningful.",
+)
 @click.option(
     "--risk-mode",
     default="linear",
     type=click.Choice(["linear", "sigmoid"]),
     show_default=True,
 )
-def param_sweep_cmd(l, n_gens, n_seeds, n_jobs, n_points, risk_mode):
-    """Run 1D sweeps of delta, gamma, eta and plot against resilience, mean_env, and flood."""
+def param_sweep_cmd(l, n_gens, n_seeds, n_jobs, n_points, eta, sigma, initial_mix, risk_mode):  # noqa: E741
+    """Run 1D sweeps of delta, gamma, eta, lambda_mean, b, w0 over all order parameters."""
     from spatcoop.param_sweep import run_param_sweeps
 
-    # Base parameters: delta, gamma, eta will be overwritten inside run_param_sweeps.
-    base = ModelParams(L=l, n_gens=n_gens, risk_mode=risk_mode)
+    # Base parameters: the swept field is overwritten inside run_param_sweeps.
+    base = ModelParams(L=l, n_gens=n_gens, eta=eta, sigma=sigma, initial_mix=initial_mix, risk_mode=risk_mode)
     seeds = list(range(n_seeds))
 
     click.echo(
-        f"Running param sweeps: L={l}, n_gens={n_gens}, "
-        f"n_seeds={n_seeds}, n_points={n_points}, risk_mode={risk_mode}"
+        f"Running param sweeps: L={l}, n_gens={n_gens}, n_seeds={n_seeds}, "
+        f"n_points={n_points}, eta={eta}, sigma={sigma}, mix={initial_mix}, risk_mode={risk_mode}"
     )
     run_param_sweeps(base=base, seeds=seeds, n_jobs=n_jobs, n_points=n_points)
     click.echo("Figures saved to results/figures/.")
 
 
+# Shared options for the ensemble-backed diagnostic commands. Identical params
+# across plot-ops / spectrum produce the same param-hash, so run_batch reuses the
+# same checkpoints (no double simulation).
+def _ensemble_options(f):
+    f = click.option("--L", default=50, type=int, show_default=True)(f)
+    f = click.option("--n-gens", default=1500, type=int, show_default=True)(f)
+    f = click.option("--n-seeds", default=4, type=int, show_default=True)(f)
+    f = click.option("--eta", default=0.0, type=float, show_default=True)(f)
+    f = click.option("--sigma", default=0.0, type=float, show_default=True)(f)
+    f = click.option("--measure-window", default=200, type=int, show_default=True)(f)
+    f = click.option(
+        "--initial-mix",
+        default="equal",
+        type=click.Choice(["equal", "thirds"]),
+        show_default=True,
+        help="Use 'thirds' to include CC agents (for CC-specific order parameters).",
+    )(f)
+    f = click.option("--n-jobs", default=-1, type=int, show_default=True)(f)
+    return f
+
+
+def _ensemble_base(l, n_gens, eta, sigma, measure_window, initial_mix):  # noqa: E741
+    return ModelParams(
+        L=l,
+        n_gens=n_gens,
+        eta=eta,
+        sigma=sigma,
+        measure_window=measure_window,
+        initial_mix=initial_mix,
+    )
+
+
 @cli.command("plot-ops")
-@click.option("--L", default=50, type=int, show_default=True)
-@click.option("--n-gens", default=1500, type=int, show_default=True)
-@click.option("--n-seeds", default=4, type=int, show_default=True)
-@click.option("--eta", default=0.0, type=float, show_default=True)
-@click.option(
-    "--initial-mix",
-    default="equal",
-    type=click.Choice(["equal", "thirds"]),
-    show_default=True,
-    help="Use 'thirds' to include CC agents (for CC-specific order parameters).",
-)
-@click.option("--n-jobs", default=-1, type=int, show_default=True)
-def plot_ops_cmd(l, n_gens, n_seeds, eta, initial_mix, n_jobs):  # noqa: E741
+@_ensemble_options
+def plot_ops_cmd(l, n_gens, n_seeds, eta, sigma, measure_window, initial_mix, n_jobs):  # noqa: E741
     """Run a small ensemble and plot every order parameter over time (mean ± σ)."""
     from spatcoop.runner import run_batch
     from spatcoop.plots import plot_op_timeseries
 
-    base = ModelParams(L=l, n_gens=n_gens, eta=eta, initial_mix=initial_mix)
+    base = _ensemble_base(l, n_gens, eta, sigma, measure_window, initial_mix)
     seeds = list(range(n_seeds))
-    click.echo(f"Running {n_seeds} seeds: L={l}, n_gens={n_gens}, eta={eta}, mix={initial_mix}")
+    click.echo(
+        f"Running {n_seeds} seeds: L={l}, n_gens={n_gens}, eta={eta}, sigma={sigma}, mix={initial_mix}"
+    )
     run_batch([base], seeds, n_jobs=n_jobs)
     path = plot_op_timeseries(base, seeds)
     click.echo(f"Saved → {path}")
@@ -553,35 +605,46 @@ def plot_ops_cmd(l, n_gens, n_seeds, eta, initial_mix, n_jobs):  # noqa: E741
     multiple=True,
     help="Keys to plot (default: all keys in run_config.json).",
 )
-def plot_sa_cmd(out_dir, method, output_keys):
+@click.option(
+    "--all",
+    "plot_all",
+    is_flag=True,
+    default=False,
+    help="Plot every {method}_*.json in the directory (e.g. after `analyse --all-keys`).",
+)
+def plot_sa_cmd(out_dir, method, output_keys, plot_all):
     """Bar charts of SA indices from a custom sensitivity run directory."""
     from spatcoop.plots import plot_sa_indices
 
     out_dir_path = Path(out_dir)
-    keys = list(output_keys)
-    if not keys:
-        config = json.loads((out_dir_path / "run_config.json").read_text())
-        keys = config["output_keys"]
+    if plot_all:
+        keys = [p.stem[len(method) + 1 :] for p in sorted(out_dir_path.glob(f"{method}_*.json"))]
+        if not keys:
+            raise click.ClickException(f"No {method}_*.json files in {out_dir_path}.")
+    else:
+        keys = list(output_keys)
+        if not keys:
+            config = json.loads((out_dir_path / "run_config.json").read_text())
+            keys = config["output_keys"]
     for key in keys:
         path = plot_sa_indices(out_dir_path, method, key)
         click.echo(f"Saved → {path}")
 
 
 @cli.command("spectrum")
-@click.option("--L", default=50, type=int, show_default=True)
-@click.option("--n-gens", default=1500, type=int, show_default=True)
-@click.option("--n-seeds", default=4, type=int, show_default=True)
-@click.option("--eta", default=0.0, type=float, show_default=True)
+@_ensemble_options
 @click.option("--key", default="n_UC", show_default=True, help="Order parameter to analyse.")
-@click.option("--n-jobs", default=-1, type=int, show_default=True)
-def spectrum_cmd(l, n_gens, n_seeds, eta, key, n_jobs):  # noqa: E741
-    """Run a small ensemble and plot the power spectrum (oscillation frequencies) of KEY."""
-    from spatcoop.runner import run_batch
+def spectrum_cmd(l, n_gens, n_seeds, eta, sigma, measure_window, initial_mix, n_jobs, key):  # noqa: E741
+    """Run a small ensemble and plot the power spectrum (oscillation frequencies) of KEY.
+
+    Uses the same ensemble options as plot-ops; with identical params the sims are
+    reused from cache (no re-simulation).
+    """
+    from spatcoop.runner import run_batch, load_result, result_path
     from spatcoop.fourier import plot_spectrum, dominant_frequencies
-    from spatcoop.runner import load_result, result_path
     import numpy as np
 
-    base = ModelParams(L=l, n_gens=n_gens, eta=eta)
+    base = _ensemble_base(l, n_gens, eta, sigma, measure_window, initial_mix)
     seeds = list(range(n_seeds))
     click.echo(f"Running {n_seeds} seeds for spectrum of {key}: L={l}, n_gens={n_gens}, eta={eta}")
     run_batch([base], seeds, n_jobs=n_jobs)
@@ -593,6 +656,35 @@ def spectrum_cmd(l, n_gens, n_seeds, eta, key, n_jobs):  # noqa: E741
             f"  f={peak['frequency']:.4f}  period≈{peak['period']:.1f} gens  power={peak['power']:.3g}"
         )
     path = plot_spectrum(base, seeds, key=key)
+    click.echo(f"Saved → {path}")
+
+
+@cli.command("snapshot-fields")
+@click.option("--L", default=50, type=int, show_default=True)
+@click.option("--n-gens", default=1500, type=int, show_default=True)
+@click.option("--seed", default=0, type=int, show_default=True)
+@click.option("--eta", default=0.0, type=float, show_default=True)
+@click.option("--sigma", default=0.0, type=float, show_default=True)
+@click.option("--measure-window", default=200, type=int, show_default=True)
+@click.option(
+    "--initial-mix",
+    default="equal",
+    type=click.Choice(["equal", "thirds"]),
+    show_default=True,
+)
+@click.option("--snapshot-every", default=50, type=int, show_default=True)
+def snapshot_fields_cmd(
+    l, n_gens, seed, eta, sigma, measure_window, initial_mix, snapshot_every
+):  # noqa: E741
+    """Render saved per-cell snapshot lattices (strategy/wealth/env) over the measure window."""
+    from spatcoop.plots import plot_snapshot_fields
+
+    base = _ensemble_base(l, n_gens, eta, sigma, measure_window, initial_mix)
+    click.echo(f"Running one episode with snapshots every {snapshot_every} gens: L={l}, seed={seed}")
+    r = run_episode(base, seed, progress=True, snapshot_every=snapshot_every)
+    if not r.snapshots:
+        raise click.ClickException("No snapshots collected — increase n_gens or lower snapshot_every.")
+    path = plot_snapshot_fields(r)
     click.echo(f"Saved → {path}")
 
 

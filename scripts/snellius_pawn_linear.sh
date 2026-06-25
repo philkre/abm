@@ -2,9 +2,15 @@
 # Single-node PAWN sensitivity analysis — linear risk phase.
 #
 # Parameters varied: beta [0.1, 10], p_max [0, 1], T_over_E [0.4, 0.9], ell [0, 1]
-# Fixed (non-default): L=200, sigma=0.1, eta=0.03 (headline A+ run).
+# Fixed (non-default): L=200, sigma=0.1, eta=0.03, initial_mix=thirds (headline A+ run).
 #   For ablation (no flood-env feedback): change --fix eta:0.03 to --fix eta:0.0
 #   For compute-heavy sweeps: change --fix L:200 to --fix L:150
+#
+# Output keys (curated headline set): resilience, flood_rate, mean_env,
+#   mean_fitness, mean_payoff, coop_frac, p_span_UC, p_span_CC, gini_wealth,
+#   interface_density. All summary stats are saved in the checkpoints regardless,
+#   so further OPs can be added later with `sensitivity analyse --recompute`
+#   (or `--all-keys`) without re-simulating — see make_sa_plots_all.sh.
 # Method: PAWN (Latin Hypercube, N=3072 total samples).
 #   N=3072 = 512 * (4+2), matching Saltelli-equivalent coverage per Debraj's formula.
 #   Total episodes = N * n_seeds = 3072 * 20 = 61,440.
@@ -59,9 +65,17 @@ uv run spatcoop sensitivity run \
     --fix L:200 \
     --fix sigma:0.1 \
     --fix eta:0.03 \
+    --fix initial_mix:thirds \
     --output-key resilience \
     --output-key flood_rate \
     --output-key mean_env \
+    --output-key mean_fitness \
+    --output-key mean_payoff \
+    --output-key coop_frac \
+    --output-key p_span_UC \
+    --output-key p_span_CC \
+    --output-key gini_wealth \
+    --output-key interface_density \
     --out-dir results/sa/linear_pawn
 
 echo "[pawn_linear] Done: $(date)"

@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
 from spatcoop.params import ModelParams
-from spatcoop.model import OBS_KEYS
+from spatcoop.model import OBS_KEYS, RunResult
 from spatcoop.runner import load_result, result_path
 from spatcoop.analysis import (
     load_all_results,
@@ -386,3 +386,55 @@ def plot_sa_indices(out_dir: Path | str, method: str, key: str) -> Path:
     ax.set_title(f"{method.upper()} sensitivity — {key}")
     fig.tight_layout()
     return _save(fig, f"sa_{method}_{key}.pdf")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# snapshot_fields.pdf — saved per-cell lattices (strategy / wealth / env)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def plot_snapshot_fields(r: RunResult, name: str = "snapshot_fields.pdf") -> Path:
+    """Render saved snapshot lattices: rows = {strategy, wealth, env},
+    cols = the snapshot generations. Requires a RunResult with .snapshots."""
+    if not r.snapshots:
+        raise ValueError("RunResult has no snapshots (run with snapshot_every set).")
+
+    snaps = r.snapshots
+    gens = [int(g) for g in snaps["gens"]]
+    n = len(gens)
+
+    strat_cmap = matplotlib.colors.ListedColormap(["#e74c3c", "#2ecc71", "#3498db"])
+    strat_norm = matplotlib.colors.BoundaryNorm([-0.5, 0.5, 1.5, 2.5], strat_cmap.N)
+
+    rows = [
+        ("strategy", snaps["strategy"], strat_cmap, strat_norm, None),
+        ("wealth", snaps["wealth"], "viridis", None, "Wealth"),
+        ("env", snaps["env"], "BrBG", None, "Env (−1…1)"),
+    ]
+
+    fig, axes = plt.subplots(len(rows), n, figsize=(3 * n, 3 * len(rows)), squeeze=False)
+    for i, (label, stack, cmap, norm, cbar_label) in enumerate(rows):
+        vmin = -1.0 if label == "env" else None
+        vmax = 1.0 if label == "env" else None
+        for j, gen in enumerate(gens):
+            ax = axes[i][j]
+            im = ax.imshow(stack[j], cmap=cmap, norm=norm, vmin=vmin, vmax=vmax, interpolation="nearest")
+            ax.axis("off")
+            if i == 0:
+                ax.set_title(f"gen {gen}", fontsize=9)
+            if j == 0:
+                ax.text(
+                    -0.08,
+                    0.5,
+                    label,
+                    transform=ax.transAxes,
+                    rotation=90,
+                    va="center",
+                    ha="right",
+                    fontsize=10,
+                )
+        if cbar_label is not None:
+            fig.colorbar(im, ax=axes[i].tolist(), fraction=0.046, pad=0.02, label=cbar_label)
+
+    fig.suptitle("Snapshot fields over the measure window", y=1.0)
+    return _save(fig, name)
