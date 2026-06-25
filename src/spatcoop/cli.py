@@ -7,6 +7,8 @@ Commands:
     spatcoop snapshot            Save strategy lattice snapshots for one run.
     spatcoop sensitivity run     Custom SA: arbitrary params, multiple output keys.
     spatcoop sensitivity analyse Re-print/recompute SA results from a saved run.
+    spatcoop viz-sweep           Grid sweep saving spatial frames for visualization.
+    spatcoop make-gifs           Generate animated GIFs from visualization frames.
 """
 
 from __future__ import annotations
@@ -495,6 +497,195 @@ def param_sweep_cmd(l, n_gens, n_seeds, n_jobs, n_points, risk_mode):
     )
     run_param_sweeps(base=base, seeds=seeds, n_jobs=n_jobs, n_points=n_points)
     click.echo("Figures saved to results/figures/.")
+
+
+@cli.command("viz-sweep")
+@click.option(
+    "--grid",
+    "grid_specs",
+    multiple=True,
+    required=True,
+    metavar="NAME:MIN:MAX:N[:log]",
+    help=(
+        "Grid axis. Repeat for each dimension (Cartesian product). "
+        "Append ':log' for log-spaced points. "
+        "E.g. --grid beta:0.1:10.0:8:log --grid p_max:0.0:1.0:8"
+    ),
+)
+@click.option(
+    "--fix",
+    "fix_specs",
+    multiple=True,
+    metavar="NAME:VALUE",
+    help="Override a base parameter. Same syntax as `sensitivity run --fix`.",
+)
+@click.option(
+    "--snap-gens",
+    default="149,499,999,1499",
+    show_default=True,
+    help="Comma-separated generation indices at which to capture spatial frames.",
+)
+@click.option("--n-seeds", default=3, type=int, show_default=True)
+@click.option("--n-jobs", default=-1, type=int, show_default=True, help="-1 = all CPUs.")
+@click.option(
+    "--out-dir",
+    default="results/viz",
+    type=click.Path(),
+    show_default=True,
+    help="Output directory for *_frames.npz files.",
+)
+def viz_sweep_cmd(grid_specs, fix_specs, snap_gens, n_seeds, n_jobs, out_dir):
+    """Grid sweep saving spatial frames (strategy, env, wealth) for visualization.
+
+    Runs a Cartesian product of the specified grid axes with n_seeds random seeds
+    each. At the generations listed in --snap-gens the full L×L spatial state is
+    captured and saved alongside the scalar summary. Files land in out_dir as
+    {hash}_{seed:06d}_frames.npz and are idempotent (already-done runs skipped).
+
+    \b
+    Example — 8×8 (beta, p_max) grid, 3 seeds, 4 frames:
+      spatcoop viz-sweep \\
+        --grid beta:0.1:10.0:8:log \\
+        --grid p_max:0.0:1.0:8 \\
+        --fix L:200 --fix eta:0.03 --fix sigma:0.1 \\
+        --fix T_over_E:0.65 --fix ell:0.34 \\
+        --fix initial_mix:thirds \\
+        --snap-gens 149,499,999,1499 \\
+        --n-seeds 3 --out-dir results/viz/beta_pmax
+    """
+    import itertools
+    import numpy as np
+    from spatcoop.runner import run_viz_batch
+
+    # ── Parse grid axes ────────────────────────────────────────────────────────
+    def _parse_grid(spec: str):
+        parts = spec.split(":")
+        if len(parts) not in (4, 5):
+            raise click.ClickException(f"Expected NAME:MIN:MAX:N[:log], got {spec!r}")
+        name, lo, hi, n_pts = parts[0], float(parts[1]), float(parts[2]), int(parts[3])
+        log = len(parts) == 5 and parts[4] == "log"
+        if log:
+            vals = np.logspace(np.log10(lo), np.log10(hi), n_pts)
+        else:
+            vals = np.linspace(lo, hi, n_pts)
+        return name, vals
+
+    try:
+        axes = [_parse_grid(s) for s in grid_specs]
+    except click.ClickException:
+        raise
+    except Exception as exc:
+        raise click.ClickException(str(exc))
+
+    try:
+        base_params = _build_base_params(fix_specs)
+    except click.BadParameter as e:
+        raise click.ClickException(str(e))
+
+    snap_list = [int(g.strip()) for g in snap_gens.split(",")]
+    seeds = list(range(n_seeds))
+    out_path = Path(out_dir)
+
+    # ── Build Cartesian product of grid points ─────────────────────────────────
+    names = [a[0] for a in axes]
+    value_lists = [a[1] for a in axes]
+    params_list = []
+    from dataclasses import asdict
+
+    for combo in itertools.product(*value_lists):
+        kw = asdict(base_params)
+        for name, val in zip(names, combo):
+            # Support the T_over_E alias used by SA
+            if name == "T_over_E":
+                kw["T"] = float(val) * 5.0
+            elif name in kw:
+                kw[name] = float(val)
+            else:
+                raise click.ClickException(f"Unknown parameter {name!r}")
+        params_list.append(ModelParams(**kw))
+
+    n_total = len(params_list) * n_seeds
+    axis_summary = ", ".join(f"{n}({len(v)})" for n, v in axes)
+    click.echo(
+        f"Viz sweep: grid={axis_summary}, seeds={n_seeds}, "
+        f"total={n_total} runs | snap_gens={snap_list} | out={out_path}"
+    )
+
+    run_viz_batch(params_list, seeds, snap_list, out_dir=out_path, n_jobs=n_jobs)
+    click.echo(f"Done. Files in {out_path}/")
+
+
+@cli.command("make-gifs")
+@click.option(
+    "--in-dir",
+    required=True,
+    type=click.Path(exists=True),
+    help="Directory of *_frames.npz files (output of viz-sweep).",
+)
+@click.option(
+    "--out-dir",
+    default=None,
+    type=click.Path(),
+    help="Output directory for GIFs (default: <in-dir>/gifs).",
+)
+@click.option(
+    "--run-gifs/--no-run-gifs",
+    default=True,
+    show_default=True,
+    help="Generate one temporal GIF per (params, seed) file.",
+)
+@click.option(
+    "--grid-gif/--no-grid-gif",
+    default=True,
+    show_default=True,
+    help="Generate grid GIFs sweeping the parameter space.",
+)
+@click.option(
+    "--field",
+    "fields",
+    multiple=True,
+    default=("strategy", "env", "wealth"),
+    show_default=True,
+    help="Fields to include in grid GIFs. Repeat for multiple. Choices: strategy, env, wealth.",
+)
+@click.option(
+    "--ms-per-frame",
+    default=800,
+    type=int,
+    show_default=True,
+    help="Milliseconds per animation frame.",
+)
+def make_gifs_cmd(in_dir, out_dir, run_gifs, grid_gif, fields, ms_per_frame):
+    """Generate animated GIFs from visualization sweep frames.
+
+    \b
+    Two output types (both enabled by default):
+      Per-run GIFs   — 3-panel (strategy|env|wealth) animated across snap_gens.
+                       One GIF per *_frames.npz file → <out-dir>/runs/
+      Grid GIFs      — Spatial field across the (beta, p_max) parameter grid,
+                       animated over snap_gens. One GIF per field → <out-dir>/
+
+    \b
+    Example:
+      spatcoop make-gifs --in-dir results/viz/beta_pmax
+    """
+    from spatcoop.gifmaker import make_run_gifs, make_grid_gif
+
+    in_path = Path(in_dir)
+    gif_dir = Path(out_dir) if out_dir else in_path / "gifs"
+
+    if run_gifs:
+        click.echo(f"Per-run GIFs: {in_path} → {gif_dir / 'runs'}/")
+        make_run_gifs(in_path, gif_dir / "runs", ms_per_frame=ms_per_frame)
+
+    if grid_gif:
+        for field in fields:
+            if field not in ("strategy", "env", "wealth"):
+                raise click.ClickException(f"Unknown field {field!r}. Use strategy, env, or wealth.")
+            click.echo(f"Grid GIF ({field}): {in_path} → {gif_dir}/")
+            make_grid_gif(in_path, gif_dir, field=field, ms_per_frame=ms_per_frame)
+
+    click.echo(f"Done. GIFs in {gif_dir}/")
 
 
 if __name__ == "__main__":

@@ -227,24 +227,15 @@ def _moran_i(strategy: np.ndarray) -> float:
 # ── Top-level entry point ─────────────────────────────────────────────────────
 
 
-def run_episode(p: ModelParams, seed: int, progress: bool = False) -> RunResult:
-    """Run one complete model episode and return a RunResult."""
-    rng = np.random.default_rng(seed)
-    state = _init_state(p, rng)
-    ts: dict = {
-        k: []
-        for k in [
-            "n_D", "n_UC", "n_CC",
-            "mean_wealth", "flood_rate", "mean_env", "resilience",
-            "env_std", "mean_pool_gap", "near_miss_frac", "gini_wealth", "cc_contrib_frac",
-        ]
-    }
+_TS_KEYS = [
+    "n_D", "n_UC", "n_CC",
+    "mean_wealth", "flood_rate", "mean_env", "resilience",
+    "env_std", "mean_pool_gap", "near_miss_frac", "gini_wealth", "cc_contrib_frac",
+]
 
-    for gen in tqdm(range(p.n_gens), desc=f"seed={seed}", unit="gen", disable=not progress):
-        state, obs = _step(state, p, rng, gen)
-        for k, v in obs.items():
-            ts[k].append(v)
 
+def _finalise(p: ModelParams, state: dict, ts: dict) -> tuple[dict, dict]:
+    """Convert raw ts lists → arrays and compute summary scalars. Returns (ts, summary)."""
     ts = {k: np.array(v, dtype=np.float32) for k, v in ts.items()}
 
     mw = p.measure_window
@@ -255,7 +246,6 @@ def run_episode(p: ModelParams, seed: int, progress: bool = False) -> RunResult:
 
     summary["moran_i"] = _moran_i(state["strategy"])
 
-    # Post-processed from full timeseries (no re-run needed)
     uc_arr = ts["n_UC"].astype(np.float32)
     diff = np.diff(uc_arr[len(uc_arr) // 2 :])
     signs = np.sign(diff[diff != 0])
@@ -263,4 +253,51 @@ def run_episode(p: ModelParams, seed: int, progress: bool = False) -> RunResult:
     summary["uc_flip_rate"] = float(np.abs(np.diff(uc_arr[-mw:])).mean()) / float(p.L**2)
     summary["resilience_std"] = float(ts["resilience"][-mw:].std())
 
+    return ts, summary
+
+
+def run_episode(p: ModelParams, seed: int, progress: bool = False) -> RunResult:
+    """Run one complete model episode and return a RunResult."""
+    rng = np.random.default_rng(seed)
+    state = _init_state(p, rng)
+    ts: dict = {k: [] for k in _TS_KEYS}
+
+    for gen in tqdm(range(p.n_gens), desc=f"seed={seed}", unit="gen", disable=not progress):
+        state, obs = _step(state, p, rng, gen)
+        for k, v in obs.items():
+            ts[k].append(v)
+
+    ts, summary = _finalise(p, state, ts)
     return RunResult(params=p, seed=seed, timeseries=ts, summary=summary)
+
+
+def run_episode_with_frames(
+    p: ModelParams,
+    seed: int,
+    snap_gens: list[int],
+    progress: bool = False,
+) -> tuple[RunResult, dict[int, dict[str, np.ndarray]]]:
+    """Run one episode, capturing spatial state (strategy, env, wealth) at snap_gens.
+
+    Returns (RunResult, frames) where frames maps generation → field → array.
+    snap_gens values are silently clamped to [0, n_gens-1].
+    """
+    snap_set = frozenset(max(0, min(g, p.n_gens - 1)) for g in snap_gens)
+    rng = np.random.default_rng(seed)
+    state = _init_state(p, rng)
+    ts: dict = {k: [] for k in _TS_KEYS}
+    frames: dict[int, dict[str, np.ndarray]] = {}
+
+    for gen in tqdm(range(p.n_gens), desc=f"seed={seed}", unit="gen", disable=not progress):
+        state, obs = _step(state, p, rng, gen)
+        for k, v in obs.items():
+            ts[k].append(v)
+        if gen in snap_set:
+            frames[gen] = {
+                "strategy": state["strategy"].copy(),
+                "env": state["env"].copy(),
+                "wealth": state["wealth"].copy(),
+            }
+
+    ts, summary = _finalise(p, state, ts)
+    return RunResult(params=p, seed=seed, timeseries=ts, summary=summary), frames
