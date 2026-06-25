@@ -1,0 +1,97 @@
+{
+  "method": "pawn",
+  "output_key": "mean_env",
+  "problem": {
+    "num_vars": 4,
+    "names": [
+      "beta",
+      "p_max",
+      "T_over_E",
+      "ell"
+    ],
+    "bounds": [
+      [
+        0.1,
+        10.0
+      ],
+      [
+        0.0,
+        1.0
+      ],
+      [
+        0.4,
+        0.9
+      ],
+      [
+        0.0,
+        1.0
+      ]
+    ],
+    "sample_scaled": true
+  },
+  "N": 500,
+  "n_samples": 500,
+  "n_seeds": 20,
+  "base_params": {
+    "L": 200,
+    "n_gens": 1500,
+    "measure_window": 200,
+    "env_update_every": 1,
+    "c_bar": 0.75,
+    "T": 3.75,
+    "R": 0.0,
+    "w0": 1.0,
+    "mu": 0.01,
+    "wealth_mode": "ou",
+    "b": 1.0,
+    "sigma": 0.1,
+    "g": 0.015,
+    "risk_mode": "linear",
+    "p_max": 0.5,
+    "k": 5.0,
+    "e0": 0.0,
+    "ell": 0.34,
+    "p_min": 0.0,
+    "delta": 0.03,
+    "gamma": 0.03,
+    "eta": 0.03,
+    "kappa": 0.2,
+    "beta": 2.0,
+    "lambda_mode": "homogeneous",
+    "lambda_mean": 1.0,
+    "lambda_max": 4.0,
+    "well_mixed": false,
+    "frozen_strategies": false,
+    "initial_mix": "equal"
+  },
+  "KS": [
+    0.132,
+    0.526,
+    0.14700000000000002,
+    0.10555102040816326
+  ],
+  "KS_min": [
+    0.076,
+    0.31,
+    0.092,
+    0.066
+  ],
+  "KS_mean": [
+    0.14187346938775508,
+    0.5247510204081633,
+    0.18893877551020408,
+    0.12571020408163264
+  ],
+  "KS_max": [
+    0.276,
+    0.754,
+    0.614,
+    0.228
+  ],
+  "KS_conf": [
+    0.3729753566510289,
+    0.2619313846255089,
+    0.7812256463271617,
+    0.38771387534016294
+  ]
+}
