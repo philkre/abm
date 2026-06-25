@@ -52,7 +52,9 @@ def _parse_fix_spec(spec: str) -> tuple[str, object]:
     name, val_s = parts
     fields = ModelParams.__dataclass_fields__
     if name not in fields:
-        raise click.BadParameter(f"Unknown parameter {name!r}. Run `spatcoop sensitivity run --help` for context.")
+        raise click.BadParameter(
+            f"Unknown parameter {name!r}. Run `spatcoop sensitivity run --help` for context."
+        )
     ftype = fields[name].type
     if ftype is bool:
         val = val_s.lower() in ("1", "true", "yes")
@@ -83,7 +85,9 @@ def _print_sa_file(path: Path) -> None:
 
     click.echo(f"\n{'─'*60}")
     click.echo(f"  Output key : {key}")
-    click.echo(f"  Method     : {method}  (N={result['N']}, samples={result['n_samples']}, seeds={result['n_seeds']})")
+    click.echo(
+        f"  Method     : {method}  (N={result['N']}, samples={result['n_samples']}, seeds={result['n_seeds']})"
+    )
     click.echo(f"{'─'*60}")
 
     if method == "sobol":
@@ -143,14 +147,23 @@ def sensitivity_group():
 @click.option("--n-gens", default=1500, type=int, show_default=True)
 @click.option("--eta", default=0.0, type=float, show_default=True)
 @click.option("--save/--no-save", default=False, help="Save .npz checkpoint.")
-def run_single(l, p_max, beta, seed, n_gens, eta, save):  # noqa: E741
+@click.option(
+    "--snapshot-every",
+    default=None,
+    type=int,
+    help="Save per-cell lattice snapshots every N gens in the measure window (needs --save).",
+)
+def run_single(l, p_max, beta, seed, n_gens, eta, save, snapshot_every):  # noqa: E741
     """Quick single run for development — prints summary."""
     p = ModelParams(L=l, p_max=p_max, beta=beta, n_gens=n_gens, eta=eta)
     click.echo(f"Running: L={l}, p_max={p_max}, β={beta}, η={eta}, seed={seed}")
-    r = run_episode(p, seed, progress=True)
+    r = run_episode(p, seed, progress=True, snapshot_every=snapshot_every)
     click.echo("─" * 40)
     for k, v in r.summary.items():
         click.echo(f"  {k:20s}: {v:.4f}")
+    if r.snapshots is not None:
+        gens = [int(g) for g in r.snapshots["gens"]]
+        click.echo(f"  snapshots: {len(gens)} frames at gens {gens}")
     if save:
         save_result(r)
         click.echo(f"Saved → results/raw/{p.hash()}_{seed:06d}.npz")
@@ -277,7 +290,9 @@ def snapshot_cmd(l, p_max, seed, n_gens, snaps):  # noqa: E741
     multiple=True,
     default=("resilience",),
     show_default=True,
-    help=(f"Output metric to analyse. Repeat for multiple. " f"Valid: {', '.join(sorted(VALID_OUTPUT_KEYS))}"),
+    help=(
+        f"Output metric to analyse. Repeat for multiple. " f"Valid: {', '.join(sorted(VALID_OUTPUT_KEYS))}"
+    ),
 )
 @click.option(
     "--method",
@@ -377,7 +392,9 @@ def sensitivity_run(
 
     for key in output_keys:
         if key not in VALID_OUTPUT_KEYS:
-            raise click.ClickException(f"Unknown output key {key!r}. Valid: {', '.join(sorted(VALID_OUTPUT_KEYS))}")
+            raise click.ClickException(
+                f"Unknown output key {key!r}. Valid: {', '.join(sorted(VALID_OUTPUT_KEYS))}"
+            )
 
     try:
         base_params = _build_base_params(fix_specs)
@@ -495,6 +512,88 @@ def param_sweep_cmd(l, n_gens, n_seeds, n_jobs, n_points, risk_mode):
     )
     run_param_sweeps(base=base, seeds=seeds, n_jobs=n_jobs, n_points=n_points)
     click.echo("Figures saved to results/figures/.")
+
+
+@cli.command("plot-ops")
+@click.option("--L", default=50, type=int, show_default=True)
+@click.option("--n-gens", default=1500, type=int, show_default=True)
+@click.option("--n-seeds", default=4, type=int, show_default=True)
+@click.option("--eta", default=0.0, type=float, show_default=True)
+@click.option(
+    "--initial-mix",
+    default="equal",
+    type=click.Choice(["equal", "thirds"]),
+    show_default=True,
+    help="Use 'thirds' to include CC agents (for CC-specific order parameters).",
+)
+@click.option("--n-jobs", default=-1, type=int, show_default=True)
+def plot_ops_cmd(l, n_gens, n_seeds, eta, initial_mix, n_jobs):  # noqa: E741
+    """Run a small ensemble and plot every order parameter over time (mean ± σ)."""
+    from spatcoop.runner import run_batch
+    from spatcoop.plots import plot_op_timeseries
+
+    base = ModelParams(L=l, n_gens=n_gens, eta=eta, initial_mix=initial_mix)
+    seeds = list(range(n_seeds))
+    click.echo(f"Running {n_seeds} seeds: L={l}, n_gens={n_gens}, eta={eta}, mix={initial_mix}")
+    run_batch([base], seeds, n_jobs=n_jobs)
+    path = plot_op_timeseries(base, seeds)
+    click.echo(f"Saved → {path}")
+
+
+@cli.command("plot-sa")
+@click.option("--out-dir", required=True, type=click.Path(exists=True))
+@click.option(
+    "--method",
+    required=True,
+    type=click.Choice(["sobol", "morris", "pawn", "delta"]),
+)
+@click.option(
+    "--output-key",
+    "output_keys",
+    multiple=True,
+    help="Keys to plot (default: all keys in run_config.json).",
+)
+def plot_sa_cmd(out_dir, method, output_keys):
+    """Bar charts of SA indices from a custom sensitivity run directory."""
+    from spatcoop.plots import plot_sa_indices
+
+    out_dir_path = Path(out_dir)
+    keys = list(output_keys)
+    if not keys:
+        config = json.loads((out_dir_path / "run_config.json").read_text())
+        keys = config["output_keys"]
+    for key in keys:
+        path = plot_sa_indices(out_dir_path, method, key)
+        click.echo(f"Saved → {path}")
+
+
+@cli.command("spectrum")
+@click.option("--L", default=50, type=int, show_default=True)
+@click.option("--n-gens", default=1500, type=int, show_default=True)
+@click.option("--n-seeds", default=4, type=int, show_default=True)
+@click.option("--eta", default=0.0, type=float, show_default=True)
+@click.option("--key", default="n_UC", show_default=True, help="Order parameter to analyse.")
+@click.option("--n-jobs", default=-1, type=int, show_default=True)
+def spectrum_cmd(l, n_gens, n_seeds, eta, key, n_jobs):  # noqa: E741
+    """Run a small ensemble and plot the power spectrum (oscillation frequencies) of KEY."""
+    from spatcoop.runner import run_batch
+    from spatcoop.fourier import plot_spectrum, dominant_frequencies
+    from spatcoop.runner import load_result, result_path
+    import numpy as np
+
+    base = ModelParams(L=l, n_gens=n_gens, eta=eta)
+    seeds = list(range(n_seeds))
+    click.echo(f"Running {n_seeds} seeds for spectrum of {key}: L={l}, n_gens={n_gens}, eta={eta}")
+    run_batch([base], seeds, n_jobs=n_jobs)
+
+    mean_ts = np.mean([load_result(result_path(base, s)).timeseries[key] for s in seeds], axis=0)
+    click.echo("Dominant frequencies (mean timeseries):")
+    for peak in dominant_frequencies(mean_ts):
+        click.echo(
+            f"  f={peak['frequency']:.4f}  period≈{peak['period']:.1f} gens  power={peak['power']:.3g}"
+        )
+    path = plot_spectrum(base, seeds, key=key)
+    click.echo(f"Saved → {path}")
 
 
 if __name__ == "__main__":

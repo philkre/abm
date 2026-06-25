@@ -5,10 +5,43 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.ndimage import label
 from tqdm import tqdm
 
 from spatcoop.params import ModelParams, D, UC, CC, LINEAR
 from spatcoop.kernel import focal_sum, fermi_step
+
+# Per-generation observables, in a single canonical order. run_episode builds its
+# timeseries dict from this list; _observe must return exactly these keys.
+OBS_KEYS: tuple[str, ...] = (
+    "n_D",
+    "n_UC",
+    "n_CC",
+    "mean_wealth",
+    "flood_rate",
+    "mean_env",
+    "resilience",
+    "env_std",
+    "mean_pool_gap",
+    "near_miss_frac",
+    "gini_wealth",
+    "cc_contrib_frac",
+    # Extended (fitness/payoff, cooperation, clustering, heterogeneity)
+    "mean_fitness",
+    "mean_payoff",
+    "coop_frac",
+    "mean_contrib",
+    "wealth_D",
+    "wealth_UC",
+    "wealth_CC",
+    "p_span_D",
+    "p_span_UC",
+    "p_span_CC",
+    "max_cluster_D",
+    "max_cluster_UC",
+    "max_cluster_CC",
+    "interface_density",
+)
 
 # ── Output types ──────────────────────────────────────────────────────────────
 
@@ -18,8 +51,11 @@ class RunResult:
     params: ModelParams
     seed: int
     timeseries: dict  # keys from _observe; values: (n_gens,) float32 arrays
-    summary: dict  # final-window means + moran_i
+    summary: dict  # final-window means + std + moran_i
     completed: bool = True
+    # Optional per-cell lattice snapshots over the measure window (dedicated
+    # plotting runs only). Keys: gens (int), strategy/wealth/env/phi → (n,L,L).
+    snapshots: dict | None = None
 
 
 # ── Initialisation ────────────────────────────────────────────────────────────
@@ -164,24 +200,32 @@ def _step(state: dict, p: ModelParams, rng: np.random.Generator, gen: int) -> tu
 
         state["strategy"] = s_new
 
-    obs = _observe(state, pool, disaster, p)
+    obs = _observe(state, pool, disaster, pi, p)
     return state, obs
 
 
-def _observe(state: dict, pool: np.ndarray, disaster: np.ndarray, p: ModelParams) -> dict:
+def _observe(state: dict, pool: np.ndarray, disaster: np.ndarray, pi: np.ndarray, p: ModelParams) -> dict:
     s = state["strategy"]
     w = state["wealth"]
     e = state["env"]
+    phi = state["phi"]  # discounted fitness φ (post-update)
+    contrib = state["contrib"]
 
-    cc_mask = s == CC
-    cc_contrib_frac = (
-        float(state["contrib"][cc_mask].mean() / p.c_bar) if cc_mask.any() else float("nan")
-    )
+    d_mask, uc_mask, cc_mask = s == D, s == UC, s == CC
+
+    def _masked_mean(arr: np.ndarray, mask: np.ndarray) -> float:
+        return float(arr[mask].mean()) if mask.any() else float("nan")
+
+    cc_contrib_frac = float(contrib[cc_mask].mean() / p.c_bar) if cc_mask.any() else float("nan")
+
+    span_d, max_d = _cluster_stats(d_mask)
+    span_uc, max_uc = _cluster_stats(uc_mask)
+    span_cc, max_cc = _cluster_stats(cc_mask)
 
     return {
-        "n_D": int((s == D).sum()),
-        "n_UC": int((s == UC).sum()),
-        "n_CC": int((s == CC).sum()),
+        "n_D": int(d_mask.sum()),
+        "n_UC": int(uc_mask.sum()),
+        "n_CC": int(cc_mask.sum()),
         "mean_wealth": float(w.mean()),
         "flood_rate": float(disaster.mean()),
         "mean_env": float(e.mean()),
@@ -192,7 +236,58 @@ def _observe(state: dict, pool: np.ndarray, disaster: np.ndarray, p: ModelParams
         "near_miss_frac": float(((pool >= 0.9 * p.T) & (pool < p.T)).mean()),
         "gini_wealth": _gini(w),
         "cc_contrib_frac": cc_contrib_frac,
+        # Fitness / payoff (previously computed but discarded)
+        "mean_fitness": float(phi.mean()),
+        "mean_payoff": float(pi.mean()),
+        # Cooperation / contribution
+        "coop_frac": float((uc_mask.sum() + cc_mask.sum()) / s.size),
+        "mean_contrib": float(contrib.mean() / p.c_bar),
+        # Mean wealth by strategy
+        "wealth_D": _masked_mean(w, d_mask),
+        "wealth_UC": _masked_mean(w, uc_mask),
+        "wealth_CC": _masked_mean(w, cc_mask),
+        # Per-strategy spanning-cluster probability (fraction of cells in a
+        # spanning same-strategy cluster) and largest-cluster fraction
+        "p_span_D": span_d,
+        "p_span_UC": span_uc,
+        "p_span_CC": span_cc,
+        "max_cluster_D": max_d,
+        "max_cluster_UC": max_uc,
+        "max_cluster_CC": max_cc,
+        # Spatial disorder: fraction of neighbour pairs with differing strategy
+        "interface_density": _interface_density(s),
     }
+
+
+# ── Cluster / spatial-pattern statistics ──────────────────────────────────────
+
+
+def _cluster_stats(mask: np.ndarray) -> tuple[float, float]:
+    """Spanning-cluster cell fraction and largest-cluster fraction for one strategy.
+
+    Connected components are 4-connected (Von Neumann). A component "spans" if it
+    touches both opposite borders (top/bottom or left/right) — an edge proxy for
+    percolation on the torus. Both outputs are normalised by L².
+    Returns (span_fraction, largest_fraction); (0, 0) when the strategy is absent.
+    """
+    if not mask.any():
+        return 0.0, 0.0
+    lab, n = label(mask)
+    if n == 0:
+        return 0.0, 0.0
+    sizes = np.bincount(lab.ravel())[1:]  # drop background label 0
+    largest = float(sizes.max()) / mask.size
+
+    spanning = ((set(lab[0]) & set(lab[-1])) | (set(lab[:, 0]) & set(lab[:, -1]))) - {0}
+    span_cells = float(np.isin(lab, list(spanning)).sum()) / mask.size if spanning else 0.0
+    return span_cells, largest
+
+
+def _interface_density(s: np.ndarray) -> float:
+    """Fraction of Von Neumann neighbour pairs (right + down on the torus) that
+    differ in strategy. 0 = single domain, →1 = fully mixed."""
+    diff = (s != np.roll(s, -1, axis=1)).sum() + (s != np.roll(s, -1, axis=0)).sum()
+    return float(diff) / (2 * s.size)
 
 
 # ── Gini coefficient ──────────────────────────────────────────────────────────
@@ -218,7 +313,9 @@ def _moran_i(strategy: np.ndarray) -> float:
     x = (strategy == UC).astype(np.float32)
     x_mean = float(x.mean())
     x_dev = x - x_mean
-    x_lag = (np.roll(x, 1, axis=0) + np.roll(x, -1, axis=0) + np.roll(x, 1, axis=1) + np.roll(x, -1, axis=1)) / 4.0
+    x_lag = (
+        np.roll(x, 1, axis=0) + np.roll(x, -1, axis=0) + np.roll(x, 1, axis=1) + np.roll(x, -1, axis=1)
+    ) / 4.0
     num = float((x_dev * (x_lag - x_mean)).sum())
     denom = float((x_dev**2).sum())
     return float(num / denom) if denom > 0 else 0.0
@@ -227,31 +324,44 @@ def _moran_i(strategy: np.ndarray) -> float:
 # ── Top-level entry point ─────────────────────────────────────────────────────
 
 
-def run_episode(p: ModelParams, seed: int, progress: bool = False) -> RunResult:
-    """Run one complete model episode and return a RunResult."""
+def run_episode(
+    p: ModelParams,
+    seed: int,
+    progress: bool = False,
+    snapshot_every: int | None = None,
+) -> RunResult:
+    """Run one complete model episode and return a RunResult.
+
+    snapshot_every: if set, save per-cell lattice snapshots every this many gens
+    within the final measure_window (dedicated plotting runs only; default off).
+    """
     rng = np.random.default_rng(seed)
     state = _init_state(p, rng)
-    ts: dict = {
-        k: []
-        for k in [
-            "n_D", "n_UC", "n_CC",
-            "mean_wealth", "flood_rate", "mean_env", "resilience",
-            "env_std", "mean_pool_gap", "near_miss_frac", "gini_wealth", "cc_contrib_frac",
-        ]
-    }
+    ts: dict = {k: [] for k in OBS_KEYS}
+
+    mw = p.measure_window
+    snap_start = p.n_gens - mw  # first gen of the measure window
+    snaps: dict[str, list] = {"gens": [], "strategy": [], "wealth": [], "env": [], "phi": []}
 
     for gen in tqdm(range(p.n_gens), desc=f"seed={seed}", unit="gen", disable=not progress):
         state, obs = _step(state, p, rng, gen)
         for k, v in obs.items():
             ts[k].append(v)
+        if snapshot_every and gen >= snap_start and (gen - snap_start) % snapshot_every == 0:
+            snaps["gens"].append(gen)
+            snaps["strategy"].append(state["strategy"].copy())
+            snaps["wealth"].append(state["wealth"].copy())
+            snaps["env"].append(state["env"].copy())
+            snaps["phi"].append(state["phi"].copy())
 
     ts = {k: np.array(v, dtype=np.float32) for k, v in ts.items()}
 
-    mw = p.measure_window
     summary: dict = {}
     for k in ts:
         arr = ts[k][-mw:]
-        summary[k] = float(np.nanmean(arr)) if not np.all(np.isnan(arr)) else float("nan")
+        all_nan = np.all(np.isnan(arr))
+        summary[k] = float("nan") if all_nan else float(np.nanmean(arr))
+        summary[f"{k}_std"] = float("nan") if all_nan else float(np.nanstd(arr))
 
     summary["moran_i"] = _moran_i(state["strategy"])
 
@@ -261,6 +371,16 @@ def run_episode(p: ModelParams, seed: int, progress: bool = False) -> RunResult:
     signs = np.sign(diff[diff != 0])
     summary["uc_oscillation"] = float(np.sum(signs[1:] != signs[:-1])) if len(signs) > 1 else 0.0
     summary["uc_flip_rate"] = float(np.abs(np.diff(uc_arr[-mw:])).mean()) / float(p.L**2)
-    summary["resilience_std"] = float(ts["resilience"][-mw:].std())
+    # resilience_std is already provided by the per-key *_std loop above.
 
-    return RunResult(params=p, seed=seed, timeseries=ts, summary=summary)
+    snapshots = None
+    if snapshot_every and snaps["gens"]:
+        snapshots = {
+            "gens": np.array(snaps["gens"], dtype=np.int32),
+            "strategy": np.stack(snaps["strategy"]).astype(np.int8),
+            "wealth": np.stack(snaps["wealth"]).astype(np.float32),
+            "env": np.stack(snaps["env"]).astype(np.float32),
+            "phi": np.stack(snaps["phi"]).astype(np.float32),
+        }
+
+    return RunResult(params=p, seed=seed, timeseries=ts, summary=summary, snapshots=snapshots)

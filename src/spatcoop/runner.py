@@ -20,6 +20,7 @@ from spatcoop.model import run_episode, RunResult
 @contextmanager
 def _tqdm_joblib(bar: tqdm):
     """Patch joblib's batch callback to tick a tqdm bar on each completed task."""
+
     class _Callback(joblib.parallel.BatchCompletionCallBack):
         def __call__(self, *args, **kwargs):
             bar.update(n=self.batch_size)
@@ -32,6 +33,7 @@ def _tqdm_joblib(bar: tqdm):
     finally:
         joblib.parallel.BatchCompletionCallBack = old
         bar.close()
+
 
 RESULTS_DIR = Path("results/raw")
 
@@ -49,6 +51,8 @@ def save_result(r: RunResult) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     arrays: dict = {f"ts_{k}": v for k, v in r.timeseries.items()}
     arrays.update({f"sum_{k}": np.array(v) for k, v in r.summary.items()})
+    if r.snapshots:
+        arrays.update({f"snap_{k}": v for k, v in r.snapshots.items()})
     arrays["params_json"] = np.array(json.dumps(asdict(r.params)), dtype=object)
     arrays["seed"] = np.array(r.seed)
     np.savez_compressed(path, **arrays)
@@ -59,7 +63,14 @@ def load_result(path: Path) -> RunResult:
     p = ModelParams(**json.loads(str(d["params_json"])))
     ts = {k[3:]: d[k] for k in d if k.startswith("ts_")}
     summary = {k[4:]: float(d[k]) for k in d if k.startswith("sum_")}
-    return RunResult(params=p, seed=int(d["seed"]), timeseries=ts, summary=summary)
+    snap = {k[5:]: d[k] for k in d if k.startswith("snap_")}
+    return RunResult(
+        params=p,
+        seed=int(d["seed"]),
+        timeseries=ts,
+        summary=summary,
+        snapshots=snap or None,
+    )
 
 
 def _run_one(p: ModelParams, seed: int) -> None:

@@ -6,6 +6,9 @@ results/figures/. Call `uv run spatcoop analyse` before plotting.
 
 from __future__ import annotations
 import json
+import math
+import warnings
+from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
 
@@ -18,6 +21,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
 from spatcoop.params import ModelParams
+from spatcoop.model import OBS_KEYS
 from spatcoop.runner import load_result, result_path
 from spatcoop.analysis import (
     load_all_results,
@@ -27,6 +31,9 @@ from spatcoop.analysis import (
 
 FIGURES_DIR = Path("results/figures")
 
+# Canonical order-parameter list for the grid plots (every per-gen observable).
+ALL_OPS: tuple[str, ...] = OBS_KEYS
+
 
 def _save(fig: Figure, name: str) -> Path:
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
@@ -35,6 +42,16 @@ def _save(fig: Figure, name: str) -> Path:
     plt.close(fig)
     print(f"  saved → {path}")
     return path
+
+
+def _grid_axes(n: int, ncols: int = 4) -> tuple[Figure, np.ndarray]:
+    """Create a grid of subplots sized for n panels; hide any unused axes."""
+    nrows = math.ceil(n / ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3.4 * ncols, 2.6 * nrows), squeeze=False)
+    flat = axes.ravel()
+    for ax in flat[n:]:
+        ax.axis("off")
+    return fig, flat
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,3 +239,150 @@ def plot_spatial_snapshot(
     fig.suptitle("Strategy spatial distribution", y=1.02)
     fig.tight_layout()
     return _save(fig, "spatial_snapshot.pdf")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# op_timeseries.pdf — every order parameter over time, mean ± across-seed σ
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def plot_op_timeseries(
+    p: ModelParams,
+    seeds: Sequence[int],
+    keys: Sequence[str] = ALL_OPS,
+    name: str = "op_timeseries.pdf",
+) -> Path:
+    """Grid of OP timeseries: per key, mean over seeds with a ±1σ shaded band."""
+    results = [load_result(result_path(p, s)) for s in seeds]
+    fig, axes = _grid_axes(len(keys))
+
+    for ax, key in zip(axes, keys):
+        stack = np.array([r.timeseries[key] for r in results], dtype=np.float64)  # (n_seeds, n_gens)
+        with np.errstate(invalid="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN slices (absent strategy)
+            mean = np.nanmean(stack, axis=0)
+            std = np.nanstd(stack, axis=0)
+        gens = np.arange(mean.shape[0])
+        ax.plot(gens, mean, color="steelblue", lw=1.2)
+        ax.fill_between(gens, mean - std, mean + std, color="steelblue", alpha=0.25, lw=0)
+        ax.set_title(key, fontsize=9)
+        ax.tick_params(labelsize=7)
+
+    fig.suptitle(f"Order parameters over time (mean ± σ, {len(seeds)} seeds)", y=1.005)
+    fig.tight_layout()
+    return _save(fig, name)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# op_vs_<param>.pdf — average order parameter vs a swept parameter
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def plot_op_vs_param(
+    param_name: str,
+    values: Sequence[float],
+    base: ModelParams,
+    seeds: Sequence[int],
+    keys: Sequence[str] = ALL_OPS,
+    name: str | None = None,
+) -> Path:
+    """Grid of avg-OP (y) vs swept parameter value (x). Results must be on disk.
+
+    One panel per OP; the y value is the final-window summary mean averaged over
+    seeds (uses summary_table). Drives the λ and wealth/income sweep figures.
+    """
+    params_list = [replace(base, **{param_name: float(v)}) for v in values]
+    results = load_all_results(params_list, seeds)
+    tbl = summary_table(results, keys=list(keys))  # (n_values, n_keys)
+
+    fig, axes = _grid_axes(len(keys))
+    for j, (ax, key) in enumerate(zip(axes, keys)):
+        ax.plot(values, tbl[:, j], marker="o", ms=3, lw=1.2, color="darkorange")
+        ax.set_title(key, fontsize=9)
+        ax.set_xlabel(param_name, fontsize=8)
+        ax.tick_params(labelsize=7)
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle(f"Order parameters vs {param_name}", y=1.005)
+    fig.tight_layout()
+    return _save(fig, name or f"op_vs_{param_name}.pdf")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# sa_<method>_<key>.pdf — sensitivity indices for the custom SA workflow
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def plot_sa_indices(out_dir: Path | str, method: str, key: str) -> Path:
+    """Bar chart of SA indices from results/sa/<...>/{method}_{key}.json.
+
+    sobol → grouped first-order S1 and total-order ST bars (with conf bars).
+    pawn  → median KS bars with [min, max] whiskers.
+    morris/delta → mu* / δ bars with conf bars.
+    """
+    out_dir = Path(out_dir)
+    result = json.loads((out_dir / f"{method}_{key}.json").read_text())
+    names = result["problem"]["names"]
+    x = np.arange(len(names))
+
+    fig, ax = plt.subplots(figsize=(max(5, 1.1 * len(names)), 4))
+
+    if method == "sobol":
+        w = 0.38
+        ax.bar(
+            x - w / 2,
+            result["S1"],
+            w,
+            yerr=result["S1_conf"],
+            capsize=3,
+            label="S1 (first-order)",
+            color="steelblue",
+            error_kw={"lw": 1},
+        )
+        ax.bar(
+            x + w / 2,
+            result["ST"],
+            w,
+            yerr=result["ST_conf"],
+            capsize=3,
+            label="ST (total-order)",
+            color="coral",
+            error_kw={"lw": 1},
+        )
+        ax.set_ylabel("Sobol index")
+        ax.legend()
+    elif method == "pawn":
+        lo = np.array(result["KS"]) - np.array(result["KS_min"])
+        hi = np.array(result["KS_max"]) - np.array(result["KS"])
+        ax.bar(x, result["KS"], 0.6, yerr=[lo, hi], capsize=3, color="mediumseagreen", error_kw={"lw": 1})
+        ax.set_ylabel("PAWN KS (median; whiskers = min/max)")
+    elif method == "morris":
+        ax.bar(
+            x,
+            result["mu_star"],
+            0.6,
+            yerr=result["mu_star_conf"],
+            capsize=3,
+            color="slateblue",
+            error_kw={"lw": 1},
+        )
+        ax.set_ylabel("Morris μ*")
+    elif method == "delta":
+        ax.bar(
+            x,
+            result["delta"],
+            0.6,
+            yerr=result["delta_conf"],
+            capsize=3,
+            color="indianred",
+            error_kw={"lw": 1},
+        )
+        ax.set_ylabel("Borgonovo δ")
+    else:
+        raise ValueError(f"Unknown method {method!r}")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(names, rotation=30, ha="right")
+    ax.set_title(f"{method.upper()} sensitivity — {key}")
+    fig.tight_layout()
+    return _save(fig, f"sa_{method}_{key}.pdf")
