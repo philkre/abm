@@ -37,7 +37,8 @@ for pair in "${PAIRS[@]}"; do
         continue
     fi
     echo "[make_sa_plots_all] Recomputing ALL order parameters for $method in $dir"
-    uv run spatcoop sensitivity analyse --out-dir "$dir" --method "$method" --recompute --all-keys
+    uv run spatcoop sensitivity analyse --out-dir "$dir" --method "$method" --recompute --all-keys \
+        --raw-dir /scratch-shared/lschoonheid/results/raw
     echo "[make_sa_plots_all] Plotting all $method bars from $dir"
     uv run spatcoop plot-sa --out-dir "$dir" --method "$method" --all
 done

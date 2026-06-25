@@ -222,6 +222,7 @@ def collect_Y_vectors(
     seeds: list[int],
     output_keys: list[str],
     n_jobs: int = -1,
+    raw_dir: Path = Path("results/raw"),
 ) -> dict[str, np.ndarray]:
     """Load saved results, average over seeds, return {output_key: Y_array}.
 
@@ -231,7 +232,7 @@ def collect_Y_vectors(
 
     def _load_one(p: ModelParams) -> dict[str, float]:
         return {
-            key: float(np.mean([load_result(result_path(p, s)).summary[key] for s in seeds]))
+            key: float(np.mean([load_result(result_path(p, s, raw_dir)).summary[key] for s in seeds]))
             for key in output_keys
         }
 
@@ -351,6 +352,7 @@ def run_sa_custom(
     method: str = "pawn",
     n_jobs: int = -1,
     out_dir: Path = Path("results/sa/custom"),
+    raw_dir: Path = Path("results/raw"),
     task_id: int | None = None,
     n_tasks: int | None = None,
 ) -> None:
@@ -398,7 +400,7 @@ def run_sa_custom(
             f"SA array task {task_id + 1}/{n_tasks}: "
             f"simulating param points [{lo}:{hi}] ({len(run_slice)} of {n_samples})"
         )
-        run_batch(run_slice, seeds, n_jobs=n_jobs)
+        run_batch(run_slice, seeds, n_jobs=n_jobs, raw_dir=raw_dir)
         print(f"  Done. When all {n_tasks} tasks finish, run:")
         print(f"    spatcoop sensitivity analyse --out-dir {out_dir} --recompute")
         return
@@ -409,10 +411,10 @@ def run_sa_custom(
     print(f"  Output keys: {output_keys}")
 
     # ── Simulate (idempotent checkpoints) ─────────────────────────────────────
-    run_batch(run_slice, seeds, n_jobs=n_jobs)
+    run_batch(run_slice, seeds, n_jobs=n_jobs, raw_dir=raw_dir)
 
     # ── Collect Y vectors (parallel I/O) ──────────────────────────────────────
-    Y_dict = collect_Y_vectors(params_list, seeds, output_keys, n_jobs=n_jobs)
+    Y_dict = collect_Y_vectors(params_list, seeds, output_keys, n_jobs=n_jobs, raw_dir=raw_dir)
 
     # ── Compute SA indices in parallel across output keys ─────────────────────
     _compute = _COMPUTE_FN[method]
@@ -445,6 +447,7 @@ def reanalyse_from_dir(
     out_dir: Path,
     output_keys: list[str] | None = None,
     method_override: str | None = None,
+    raw_dir: Path = Path("results/raw"),
 ) -> None:
     """
     Re-collect outputs and recompute SA indices from a saved run_config.json.
@@ -484,7 +487,7 @@ def reanalyse_from_dir(
 
     label = method if method == sample_method else f"{method} (sample: {sample_method})"
     print(f"Re-analysing {out_dir} ({label}, {len(params_list)} samples, keys={keys})")
-    Y_dict = collect_Y_vectors(params_list, seeds, keys)
+    Y_dict = collect_Y_vectors(params_list, seeds, keys, raw_dir=raw_dir)
     _compute = _COMPUTE_FN[method]
 
     for key, Y in Y_dict.items():

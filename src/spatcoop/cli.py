@@ -344,6 +344,13 @@ def snapshot_cmd(l, p_max, seed, n_gens, eta, sigma, initial_mix, snaps):  # noq
     help="Directory for run_config.json, sample_X.npy, and per-key result files.",
 )
 @click.option(
+    "--raw-dir",
+    default="results/raw",
+    type=click.Path(),
+    show_default=True,
+    help="Directory for per-run .npz checkpoints.",
+)
+@click.option(
     "--task-id",
     default=None,
     type=int,
@@ -364,6 +371,7 @@ def sensitivity_run(
     n_seeds,
     n_jobs,
     out_dir,
+    raw_dir,
     task_id,
     n_tasks,
 ):
@@ -419,6 +427,7 @@ def sensitivity_run(
         method=method,
         n_jobs=n_jobs,
         out_dir=Path(out_dir),
+        raw_dir=Path(raw_dir),
         task_id=task_id,
         n_tasks=n_tasks,
     )
@@ -459,7 +468,14 @@ def sensitivity_run(
     default=False,
     help="Analyse every order parameter (all OBS_KEYS), not just the run_config keys.",
 )
-def sensitivity_analyse(out_dir, output_keys, method, recompute, all_keys):
+@click.option(
+    "--raw-dir",
+    default="results/raw",
+    type=click.Path(),
+    show_default=True,
+    help="Directory containing .npz checkpoints (only used with --recompute).",
+)
+def sensitivity_analyse(out_dir, output_keys, method, recompute, all_keys, raw_dir):
     """Print SA indices from a saved sensitivity run.
 
     By default, reads already-saved {method}_{key}.json files.
@@ -481,7 +497,7 @@ def sensitivity_analyse(out_dir, output_keys, method, recompute, all_keys):
 
     if recompute:
         keys = list(output_keys) if output_keys else None
-        reanalyse_from_dir(out_dir_path, output_keys=keys, method_override=method)
+        reanalyse_from_dir(out_dir_path, output_keys=keys, method_override=method, raw_dir=Path(raw_dir))
 
     # Discover result files to print
     config_path = out_dir_path / "run_config.json"

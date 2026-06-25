@@ -41,7 +41,7 @@
 
 set -euo pipefail
 
-mkdir -p logs /scratch-shared/lschoonheid/results/sa/linear_pawn
+mkdir -p logs /scratch-shared/lschoonheid/results/sa/linear_pawn /scratch-shared/lschoonheid/results/raw
 
 module load 2024
 module load Python/3.13.1-GCCcore-13.3.0 2>/dev/null || true
@@ -76,7 +76,8 @@ uv run spatcoop sensitivity run \
     --output-key p_span_CC \
     --output-key gini_wealth \
     --output-key interface_density \
-    --out-dir /scratch-shared/lschoonheid/results/sa/linear_pawn
+    --out-dir /scratch-shared/lschoonheid/results/sa/linear_pawn \
+    --raw-dir /scratch-shared/lschoonheid/results/raw
 
 echo "[pawn_linear] Done: $(date)"
 echo ""
