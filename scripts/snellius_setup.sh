@@ -141,7 +141,7 @@ uv run --python "$PYTHON_BIN" python - <<'PY'
 import sys
 print(f"python: {sys.version.split()[0]}")
 import numpy, scipy, pandas, matplotlib, networkx
-import mesa, numba, tqdm, click, salib
+import mesa, numba, tqdm, click, SALib
 print(f"numpy:      {numpy.__version__}")
 print(f"scipy:      {scipy.__version__}")
 print(f"pandas:     {pandas.__version__}")
