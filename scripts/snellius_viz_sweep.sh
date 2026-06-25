@@ -11,7 +11,7 @@
 #
 # Wall-time estimate: ~300 runs × ~25 s/run / 16 CPUs ≈ 8 min.
 #
-# Output: /scatch-shared/lschoonheid/results/viz/beta_pmax/{hash}_{seed:06d}_frames.npz
+# Output: /scratch-shared/lschoonheid/results/viz/beta_pmax/{hash}_{seed:06d}_frames.npz
 #
 # To add other 2D slices (e.g. T_over_E × ell), copy this script and
 # swap the --grid lines and --out-dir accordingly.
@@ -19,7 +19,7 @@
 # Usage:
 #   sbatch scripts/snellius_viz_sweep.sh
 #
-#SBATCH --job-name=spatcoop_viz
+#SBATCH --job-name=viz_spatcoop
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
@@ -30,7 +30,7 @@
 
 set -euo pipefail
 
-mkdir -p logs /scatch-shared/lschoonheid/results/viz/beta_pmax
+mkdir -p logs /scratch-shared/lschoonheid/results/viz/beta_pmax
 
 module load 2024
 module load Python/3.13.1-GCCcore-13.3.0 2>/dev/null || true
@@ -54,10 +54,10 @@ uv run spatcoop viz-sweep \
     --snap-gens 1,149,249,499,749,999,1249,1499 \
     --n-seeds 3 \
     --n-jobs "$SLURM_CPUS_PER_TASK" \
-    --out-dir /scatch-shared/lschoonheid/results/viz/beta_pmax
+    --out-dir /scratch-shared/lschoonheid/results/viz/beta_pmax
 
 echo "[viz_sweep] Done: $(date)"
 echo ""
-echo "Frames in /scatch-shared/lschoonheid/results/viz/beta_pmax/"
+echo "Frames in /scratch-shared/lschoonheid/results/viz/beta_pmax/"
 echo "Grid: beta (10, log) × p_max (10, linear) × 3 seeds = 300 runs"
 echo "Snap generations: 1, 149, 249, 499, 749, 999, 1249, 1499"

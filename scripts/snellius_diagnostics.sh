@@ -13,7 +13,7 @@
 # Usage:
 #   sbatch scripts/snellius_diagnostics.sh
 #
-#SBATCH --job-name=spatcoop_diagnostics
+#SBATCH --job-name=diagnostics_spatcoop
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16

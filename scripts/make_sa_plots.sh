@@ -20,8 +20,8 @@ export PATH="$HOME/.local/bin:$PATH"
 
 # (results dir, method) pairs to plot.
 PAIRS=(
-    "results/sa/linear_sobol sobol"
-    "results/sa/linear_pawn  pawn"
+    "/scratch-shared/lschoonheid/results/sa/linear_sobol sobol"
+    "/scratch-shared/lschoonheid/results/sa/linear_pawn  pawn"
 )
 
 for pair in "${PAIRS[@]}"; do
@@ -35,9 +35,9 @@ for pair in "${PAIRS[@]}"; do
 done
 
 # Rich combined PAWN figure (grouped bars + KS heatmap).
-if [[ -d results/sa/linear_pawn ]]; then
+if [[ -d /scratch-shared/lschoonheid/results/sa/linear_pawn ]]; then
     echo "[make_sa_plots] Rendering combined PAWN figure"
-    uv run python scripts/plot_sa_pawn.py results/sa/linear_pawn
+    uv run python scripts/plot_sa_pawn.py /scratch-shared/lschoonheid/results/sa/linear_pawn
 fi
 
-echo "[make_sa_plots] Done. Figures in results/figures/ and results/sa/linear_pawn/."
+echo "[make_sa_plots] Done. Figures in results/figures/ and /scratch-shared/lschoonheid/results/sa/linear_pawn/."

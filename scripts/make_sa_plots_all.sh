@@ -26,8 +26,8 @@ cd "$SCRIPT_DIR/.."
 export PATH="$HOME/.local/bin:$PATH"
 
 PAIRS=(
-    "results/sa/linear_sobol sobol"
-    "results/sa/linear_pawn  pawn"
+    "/scratch-shared/lschoonheid/results/sa/linear_sobol sobol"
+    "/scratch-shared/lschoonheid/results/sa/linear_pawn  pawn"
 )
 
 for pair in "${PAIRS[@]}"; do

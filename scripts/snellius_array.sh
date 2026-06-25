@@ -2,7 +2,7 @@
 # Array job for L=200 or large N: splits the Sobol sample across nodes.
 # Each task handles (total_samples / n_tasks) parameter points.
 # After all tasks finish, run `spatcoop analyse --phase linear --N 512` locally.
-#SBATCH --job-name=spatcoop_array
+#SBATCH --job-name=array_spatcoop
 #SBATCH --array=0-95
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=24

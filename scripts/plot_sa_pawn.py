@@ -3,7 +3,7 @@
 Usage:
     uv run python scripts/plot_sa_pawn.py [results_dir]
 
-Defaults to /scatch-shared/lschoonheid/results/sa/linear_pawn/ if no argument given.
+Defaults to results/sa/linear_pawn/ if no argument given.
 Saves pawn_sensitivity.png in the results directory.
 """
 
@@ -210,7 +210,7 @@ def print_ranking(results: dict[str, dict]) -> None:
 
 
 def main() -> None:
-    results_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/scatch-shared/lschoonheid/results/sa/linear_pawn")
+    results_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("results/sa/linear_pawn")
     results_dir = Path(results_dir)
 
     if not results_dir.exists():

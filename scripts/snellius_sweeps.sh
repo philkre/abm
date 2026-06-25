@@ -11,7 +11,7 @@
 # Usage:
 #   sbatch scripts/snellius_sweeps.sh
 #
-#SBATCH --job-name=spatcoop_sweeps
+#SBATCH --job-name=sweeps_spatcoop
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=24
