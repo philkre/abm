@@ -3,7 +3,7 @@
 Usage:
     uv run python scripts/plot_sa_pawn.py [results_dir]
 
-Defaults to results/sa/linear_pawn/ if no argument given.
+Defaults to /scatch-shared/lschoonheid/results/sa/linear_pawn/ if no argument given.
 Saves pawn_sensitivity.png in the results directory.
 """
 
@@ -14,7 +14,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
-
 
 # ── display config ────────────────────────────────────────────────────────────
 
@@ -43,6 +42,7 @@ SIGNIFICANCE_THRESHOLD = 0.1  # conventional PAWN cut-off
 
 # ── data loading ──────────────────────────────────────────────────────────────
 
+
 def load_pawn_results(results_dir: Path) -> dict[str, dict]:
     """Load all pawn_*.json files from results_dir, keyed by output_key."""
     results = {}
@@ -56,6 +56,7 @@ def load_pawn_results(results_dir: Path) -> dict[str, dict]:
 
 # ── figure: grouped bar chart + heatmap ──────────────────────────────────────
 
+
 def plot_pawn(results: dict[str, dict], out_path: Path) -> None:
     param_names = results[next(iter(results))]["problem"]["names"]
     n_params = len(param_names)
@@ -63,7 +64,8 @@ def plot_pawn(results: dict[str, dict], out_path: Path) -> None:
     n_outputs = len(output_keys)
 
     fig, axes = plt.subplots(
-        1, 2,
+        1,
+        2,
         figsize=(13, 5),
         gridspec_kw={"width_ratios": [3, 1.5]},
     )
@@ -139,9 +141,7 @@ def plot_pawn(results: dict[str, dict], out_path: Path) -> None:
     # ── right: heatmap ────────────────────────────────────────────────────────
     ax2 = axes[1]
 
-    matrix = np.array([
-        results[key]["KS_mean"] for key in output_keys
-    ])  # shape: (n_outputs, n_params)
+    matrix = np.array([results[key]["KS_mean"] for key in output_keys])  # shape: (n_outputs, n_params)
 
     im = ax2.imshow(
         matrix,
@@ -157,15 +157,22 @@ def plot_pawn(results: dict[str, dict], out_path: Path) -> None:
             val = matrix[row, col]
             text_color = "black" if val < 0.55 else "white"
             ax2.text(
-                col, row, f"{val:.2f}",
-                ha="center", va="center",
-                fontsize=9, color=text_color, fontweight="bold",
+                col,
+                row,
+                f"{val:.2f}",
+                ha="center",
+                va="center",
+                fontsize=9,
+                color=text_color,
+                fontweight="bold",
             )
 
     ax2.set_xticks(range(n_params))
     ax2.set_xticklabels(
         [PARAM_LABELS.get(p, p) for p in param_names],
-        rotation=30, ha="right", fontsize=9,
+        rotation=30,
+        ha="right",
+        fontsize=9,
     )
     ax2.set_yticks(range(n_outputs))
     ax2.set_yticklabels(
@@ -181,6 +188,7 @@ def plot_pawn(results: dict[str, dict], out_path: Path) -> None:
 
 
 # ── ranking summary ───────────────────────────────────────────────────────────
+
 
 def print_ranking(results: dict[str, dict]) -> None:
     param_names = results[next(iter(results))]["problem"]["names"]
@@ -200,8 +208,9 @@ def print_ranking(results: dict[str, dict]) -> None:
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
-    results_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("results/sa/linear_pawn")
+    results_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/scatch-shared/lschoonheid/results/sa/linear_pawn")
     results_dir = Path(results_dir)
 
     if not results_dir.exists():

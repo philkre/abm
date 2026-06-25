@@ -19,7 +19,7 @@
 #   sbatch scripts/snellius_sobol_linear.sh
 #
 # After completion, print results:
-#   spatcoop sensitivity analyse --out-dir results/sa/linear_sobol
+#   spatcoop sensitivity analyse --out-dir /scatch-shared/lschoonheid/results/sa/linear_sobol
 #
 #SBATCH --job-name=spatcoop_sobol_linear
 #SBATCH --nodes=1
@@ -32,7 +32,7 @@
 
 set -euo pipefail
 
-mkdir -p logs results/sa/linear_sobol
+mkdir -p logs /scatch-shared/lschoonheid/results/sa/linear_sobol
 
 module load 2024
 module load Python/3.13.1-GCCcore-13.3.0 2>/dev/null || true
@@ -60,10 +60,10 @@ uv run spatcoop sensitivity run \
     --output-key resilience \
     --output-key flood_rate \
     --output-key mean_env \
-    --out-dir results/sa/linear_sobol
+    --out-dir /scatch-shared/lschoonheid/results/sa/linear_sobol
 
 echo "[sobol_linear] Done: $(date)"
 echo ""
-echo "Results saved to results/sa/linear_sobol/"
+echo "Results saved to /scatch-shared/lschoonheid/results/sa/linear_sobol/"
 echo "To print indices:"
-echo "  spatcoop sensitivity analyse --out-dir results/sa/linear_sobol"
+echo "  spatcoop sensitivity analyse --out-dir /scatch-shared/lschoonheid/results/sa/linear_sobol"
