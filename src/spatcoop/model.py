@@ -67,9 +67,8 @@ def _draw_lambda(p: ModelParams, L: int, rng: np.random.Generator) -> np.ndarray
         return np.full((L, L), p.lambda_mean, dtype=np.float32)
     elif p.lambda_mode == "lognormal":
         # Match mean = lambda_mean via log-normal parameterisation
-        sigma = 0.5
-        mu = np.log(p.lambda_mean) - 0.5 * sigma**2
-        return rng.lognormal(mu, sigma, (L, L)).astype(np.float32)
+        mu = np.log(p.lambda_mean) - 0.5 * p.lambda_sigma**2
+        return rng.lognormal(mu, p.lambda_sigma, (L, L)).astype(np.float32)
     elif p.lambda_mode == "uniform":
         return rng.uniform(1.0, p.lambda_max, (L, L)).astype(np.float32)
     else:

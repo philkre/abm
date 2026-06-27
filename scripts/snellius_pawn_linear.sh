@@ -1,40 +1,39 @@
 #!/bin/bash
-# Single-node PAWN sensitivity analysis — linear risk phase.
+# Single-node PAWN sensitivity analysis — linear risk phase (v2, 2026-06-27).
 #
-# Parameters varied: beta [0.1, 10], p_max [0, 1], T_over_E [0.4, 0.9], ell [0, 1]
-# Fixed (non-default): L=200, sigma=0.1, eta=0.03, initial_mix=thirds (headline A+ run).
-#   For ablation (no flood-env feedback): change --fix eta:0.03 to --fix eta:0.0
-#   For compute-heavy sweeps: change --fix L:200 to --fix L:150
+# Parameters varied (5, matching snellius_sobol_linear.sh):
+#   beta     [0.1, 10]    — Fermi selection strength
+#   p_max    [0,   1]     — maximum disaster probability
+#   T_over_E [0.2, 0.9]  — threshold/group-income; T=T_over_E*5; covers NetLogo≈0.34
+#   b        [1,  30]     — Wiener drift (income); collapse at b≈1, oscillatory at b≥4
+#   eta      [0,  0.020]  — flood→env damage; NetLogo=0.005
 #
-# Output keys (curated headline set): resilience, flood_rate, mean_env,
-#   mean_fitness, mean_payoff, coop_frac, p_span_UC, p_span_CC, gini_wealth,
-#   interface_density. All summary stats are saved in the checkpoints regardless,
-#   so further OPs can be added later with `sensitivity analyse --recompute`
-#   (or `--all-keys`) without re-simulating — see make_sa_plots_all.sh.
-# Method: PAWN (Latin Hypercube, N=3072 total samples).
-#   N=3072 = 512 * (4+2), matching Saltelli-equivalent coverage per Debraj's formula.
-#   Total episodes = N * n_seeds = 3072 * 20 = 61,440.
-#   At L=200, 1500 gens, 16 CPUs: estimated ~4–6 h wall time.
-#   Prefer snellius_sobol_linear.sh for Sobol indices; use this for PAWN-specific diagnostics.
+# Fixed (NetLogo-verified oscillatory-regime defaults):
+#   L=200, sigma=0.1, c_bar=0.75, ell=0.64, initial_mix=thirds
+#   delta=0.042, gamma=0.018, kappa=0.1  (asymmetric env; NetLogo values)
+#   lambda_mode=lognormal, lambda_mean=2.25, lambda_sigma=0.5  (Kahneman–Tversky
+#     heterogeneous loss aversion — the second heterogeneity axis beyond wealth)
+#
+# Method: PAWN (Latin Hypercube, N=3584 total samples).
+#   N=3584 = 512 * (5+2), preserving per-dimension coverage vs old N=3072 for 4 params.
+#   Total episodes = N * n_seeds = 3584 * 20 = 71,680.
+#   At L=200, 1500 gens, 192 CPUs: estimated ~6–8 h wall time.
 #
 # Why single-node (not array) for PAWN:
-#   PAWN uses Latin Hypercube sampling, which is NOT deterministic without a
-#   fixed seed. Array tasks would each generate a different X and simulate
-#   incompatible slices; the saved sample_X.npy would then mismatch the
-#   simulated params during reanalysis. Sobol (Saltelli sequence) is
-#   deterministic and is safe to split across array tasks.
+#   LHS is not deterministic; array tasks would each generate a different X,
+#   producing incompatible slices. Saltelli (Sobol) is deterministic → safe for arrays.
 #
 # Usage:
 #   sbatch scripts/snellius_pawn_linear.sh
 #
-# After completion, print results:
+# After completion:
 #   spatcoop sensitivity analyse --out-dir /scratch-shared/lschoonheid/results/sa/linear_pawn
 #
-#SBATCH --job-name=pawn_linear_spatcoop
+#SBATCH --job-name=pawn_linear_v2
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=192
-#SBATCH --time=08:00:00
+#SBATCH --time=10:00:00
 #SBATCH --partition=genoa
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.err
@@ -48,34 +47,48 @@ module load Python/3.13.1-GCCcore-13.3.0 2>/dev/null || true
 
 export PATH="$HOME/.local/bin:$PATH"
 
-echo "[pawn_linear] Starting PAWN SA — linear risk phase"
+echo "[pawn_linear] Starting PAWN SA v2 — linear risk phase (5 params)"
 echo "  Host:       $(hostname)"
 echo "  CPUs:       $SLURM_CPUS_PER_TASK"
 echo "  Started:    $(date)"
+echo "  Params:     beta p_max T_over_E b eta"
+echo "  Fixed env:  delta=0.042 gamma=0.018 kappa=0.1 (NetLogo oscillatory regime)"
 
 uv run spatcoop sensitivity run \
     --vary beta:0.1:10.0 \
     --vary p_max:0.0:1.0 \
-    --vary T_over_E:0.4:0.9 \
-    --vary ell:0.0:1.0 \
+    --vary T_over_E:0.2:0.9 \
+    --vary b:1.0:30.0 \
+    --vary eta:0.0:0.020 \
     --method pawn \
-    --N 3072 \
+    --N 3584 \
     --n-seeds 20 \
     --n-jobs "$SLURM_CPUS_PER_TASK" \
     --fix L:200 \
     --fix sigma:0.1 \
-    --fix eta:0.03 \
+    --fix c_bar:0.75 \
+    --fix ell:0.64 \
+    --fix delta:0.042 \
+    --fix gamma:0.018 \
+    --fix kappa:0.1 \
     --fix initial_mix:thirds \
+    --fix lambda_mode:lognormal \
+    --fix lambda_mean:2.25 \
+    --fix lambda_sigma:0.5 \
     --output-key resilience \
     --output-key flood_rate \
     --output-key mean_env \
-    --output-key mean_fitness \
-    --output-key mean_payoff \
+    --output-key mean_env_std \
     --output-key coop_frac \
+    --output-key coop_frac_std \
     --output-key p_span_UC \
     --output-key p_span_CC \
-    --output-key gini_wealth \
     --output-key interface_density \
+    --output-key mean_wealth \
+    --output-key mean_wealth_std \
+    --output-key gini_wealth \
+    --output-key mean_fitness \
+    --output-key mean_payoff \
     --out-dir /scratch-shared/lschoonheid/results/sa/linear_pawn \
     --raw-dir /scratch-shared/lschoonheid/results/raw
 
