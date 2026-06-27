@@ -58,6 +58,7 @@ class ModelParams:
     # Loss aversion (CC only; λ_i distribution)
     lambda_mode: str = "homogeneous"  # "homogeneous" | "lognormal" | "uniform"
     lambda_mean: float = 1.0  # 1.0 = risk-neutral; 2.25 = K-T mean
+    lambda_sigma: float = 0.5  # log-normal σ (shape); headline value from K-T literature
     lambda_max: float = 4.0  # upper bound for uniform draw
 
     # Flags
