@@ -66,6 +66,11 @@ class ModelParams:
     frozen_strategies: bool = False  # True → no Fermi, no mutation (Jonsson validation)
     initial_mix: str = "equal"  # "equal" (UC/D 50-50) | "thirds" (UC/CC/D equal)
 
+    # Explicit initial strategy fractions (used when initial_mix == "fractions").
+    # initial_d_frac is implied as 1 - initial_uc_frac - initial_cc_frac.
+    initial_uc_frac: float = 0.0
+    initial_cc_frac: float = 0.0
+
     def hash(self) -> str:
         """12-char hex digest; stable across Python runs."""
         d = json.dumps(asdict(self), sort_keys=True)
