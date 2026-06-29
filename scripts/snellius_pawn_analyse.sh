@@ -16,7 +16,6 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=192
-#SBATCH --exclusive
 #SBATCH --time=02:00:00
 #SBATCH --partition=genoa
 #SBATCH --output=logs/%j.out
