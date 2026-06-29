@@ -1,12 +1,13 @@
 #!/bin/bash
-# Compute PAWN indices from already-completed simulation checkpoints.
+# Recover and compute PAWN indices from the v2 simulation checkpoints.
 #
-# Run this after snellius_pawn_linear.sh has finished all simulation runs.
-# The "sensitivity run" command checkpoints each episode as a .npz file in
-# --raw-dir; "sensitivity analyse" reads those and computes the PAWN KS
-# statistics without re-running any simulations.
+# The v2 PAWN job completed all 71,680 episodes but the stale v1 run_config.json
+# blocked sample_X.npy from being saved, so the LHS sample was lost.
+# scripts/recover_pawn_and_analyse.py rebuilds params_list directly from the
+# stored params_json in each .npz, runs collect_Y_vectors, computes PAWN
+# indices, and writes pawn_{key}.json + corrected run_config.json/sample_X.npy.
 #
-# Estimated wall time: ~2 h (385/3584 params in 13 min observed on tcn668).
+# Estimated wall time: ~2 h (loading 3584 × 20 checkpoints is the bottleneck).
 #
 # Usage:
 #   sbatch --account=gisr129479 scripts/snellius_pawn_analyse.sh
@@ -36,11 +37,9 @@ echo "  Host:    $(hostname)"
 echo "  CPUs:    $SLURM_CPUS_PER_TASK"
 echo "  Started: $(date)"
 
-uv run spatcoop sensitivity analyse \
-    --out-dir /scratch-shared/lschoonheid/results/sa/linear_pawn \
-    --raw-dir /scratch-shared/lschoonheid/results/raw \
-    --recompute
+uv run python scripts/recover_pawn_and_analyse.py
 
 echo "[pawn_analyse] Done: $(date)"
 echo ""
 echo "Results saved to /scratch-shared/lschoonheid/results/sa/linear_pawn/"
+echo "Fetch with: rsync -av snellius:/scratch-shared/lschoonheid/results/sa/linear_pawn/ results/sa/linear_pawn/"
