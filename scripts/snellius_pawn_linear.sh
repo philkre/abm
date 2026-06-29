@@ -33,10 +33,11 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=192
-#SBATCH --time=10:00:00
+#SBATCH --time=02:00:00
 #SBATCH --partition=genoa
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.err
+# Note: pass --account=<your-account> to sbatch if your cluster requires it.
 
 set -euo pipefail
 
