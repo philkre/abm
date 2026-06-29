@@ -71,6 +71,10 @@ class ModelParams:
     initial_uc_frac: float = 0.0
     initial_cc_frac: float = 0.0
 
+    # Initial environment state (uniform across all cells); in [-1, 1].
+    # Default 0 = neutral; set to -1 for full-degradation recovery experiments.
+    initial_e: float = 0.0
+
     def hash(self) -> str:
         """12-char hex digest; stable across Python runs."""
         d = json.dumps(asdict(self), sort_keys=True)

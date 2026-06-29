@@ -91,7 +91,7 @@ def _init_state(p: ModelParams, rng: np.random.Generator) -> dict:
 
     return dict(
         strategy=strategy,
-        env=np.zeros((L, L), dtype=np.float32),
+        env=np.full((L, L), p.initial_e, dtype=np.float32),
         wealth=np.full((L, L), p.w0, dtype=np.float32),
         phi=np.zeros((L, L), dtype=np.float32),
         prev_c=np.zeros((L, L), dtype=np.float32),  # CC lagged contributions
