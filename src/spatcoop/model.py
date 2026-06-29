@@ -81,6 +81,11 @@ def _init_state(p: ModelParams, rng: np.random.Generator) -> dict:
         strategy = rng.choice([D, UC], size=(L, L)).astype(np.int8)
     elif p.initial_mix == "thirds":
         strategy = rng.choice([D, UC, CC], size=(L, L)).astype(np.int8)
+    elif p.initial_mix == "fractions":
+        # Use explicit UC/CC fractions; D takes the remainder.
+        d_frac = max(0.0, 1.0 - p.initial_uc_frac - p.initial_cc_frac)
+        probs = [d_frac, p.initial_uc_frac, p.initial_cc_frac]
+        strategy = rng.choice([D, UC, CC], size=(L, L), p=probs).astype(np.int8)
     else:
         raise ValueError(f"Unknown initial_mix: {p.initial_mix!r}")
 
