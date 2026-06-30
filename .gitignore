@@ -1,4 +1,3 @@
-*.pdf
 # Python runtime files
 .venv
 *.pyc
@@ -13,6 +12,15 @@ data/
 # Figures and plots
 *.gif
 *.png
+*.pdf
+
+# Allow committed result figures
+!results/figures/*.png
+!results/figures/*.pdf
+!results/phase_recovery.png
+!results/osc_summary.png
+!results/b_phase.png
+!results/timeseries.png
 
 # Log files
 *.err
