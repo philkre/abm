@@ -1,6 +1,6 @@
 {
   "method": "pawn",
-  "N": 500,
+  "N": 307,
   "problem": {
     "num_vars": 4,
     "names": [
@@ -54,7 +54,14 @@
   "output_keys": [
     "resilience",
     "flood_rate",
-    "mean_env"
+    "mean_env",
+    "mean_fitness",
+    "mean_payoff",
+    "coop_frac",
+    "p_span_UC",
+    "p_span_CC",
+    "gini_wealth",
+    "interface_density"
   ],
   "base_params": {
     "L": 200,
@@ -86,6 +93,6 @@
     "lambda_max": 4.0,
     "well_mixed": false,
     "frozen_strategies": false,
-    "initial_mix": "equal"
+    "initial_mix": "thirds"
   }
 }
