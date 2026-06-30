@@ -1,6 +1,6 @@
 # Spatial Cooperation under Flood Risk
 
-**Philipp Kreiter · Agent-Based Modelling, University of Amsterdam, 2026**
+**[Philipp Kreiter](https://github.com/philkre) · [Zoë](https://github.com/zzzimtzoe) · [Justus de Bruijn Kops](https://github.com/loyalLogician) · Laszlo Schoonheid · Agent-Based Modelling, University of Amsterdam, 2026**
 
 Agent-based model of households maintaining shared flood defences on a spatial lattice. Three strategies — unconditional cooperators (UC), conditional cooperators (CC), and defectors (D) — compete in a threshold public-goods game with environmental feedback linking collective effort to local flood risk.
 
