@@ -67,7 +67,12 @@ def moran_i_strategy(strategy: np.ndarray) -> float:
     x_dev = x - x_mean
 
     # Spatial lag: mean of 4 Von Neumann neighbours
-    x_lag = (np.roll(x, 1, axis=0) + np.roll(x, -1, axis=0) + np.roll(x, 1, axis=1) + np.roll(x, -1, axis=1)) / 4.0
+    x_lag = (
+        np.roll(x, 1, axis=0)
+        + np.roll(x, -1, axis=0)
+        + np.roll(x, 1, axis=1)
+        + np.roll(x, -1, axis=1)
+    ) / 4.0
 
     num = float((x_dev * (x_lag - x_mean)).sum())
     denom = float((x_dev**2).sum())

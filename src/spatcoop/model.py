@@ -51,7 +51,7 @@ def _init_state(p: ModelParams, rng: np.random.Generator) -> dict:
 
     return dict(
         strategy=strategy,
-        env=np.zeros((L, L), dtype=np.float32),
+        env=np.full((L, L), p.initial_e, dtype=np.float32),
         wealth=np.full((L, L), p.w0, dtype=np.float32),
         phi=np.zeros((L, L), dtype=np.float32),
         prev_c=np.zeros((L, L), dtype=np.float32),  # CC lagged contributions
@@ -224,6 +224,46 @@ def _moran_i(strategy: np.ndarray) -> float:
     return float(num / denom) if denom > 0 else 0.0
 
 
+# ── Hilbert oscillation metrics ───────────────────────────────────────────────
+
+
+def _fft_oscillation(signal: np.ndarray) -> tuple[float, float]:
+    """Dominant oscillation period and normalised peak power via FFT.
+
+    Returns (period, peak_power_fraction):
+      - period: gens per cycle of dominant non-DC frequency (inf if flat)
+      - peak_power_fraction: fraction of total variance in dominant mode [0, 1]
+
+    Parabolic interpolation around the spectral peak eliminates bin-jumping
+    and gives sub-bin frequency precision.
+    """
+    x = signal - signal.mean()
+    n = len(x)
+    if n < 4 or x.std() == 0.0:
+        return float("inf"), 0.0
+
+    fft_mag = np.abs(np.fft.rfft(x)) ** 2
+    freqs   = np.fft.rfftfreq(n)
+
+    interior = slice(1, len(fft_mag) - 1)
+    peak_idx = int(np.argmax(fft_mag[interior])) + 1
+
+    total_power = fft_mag[interior].sum()
+    if total_power == 0.0:
+        return float("inf"), 0.0
+
+    # Parabolic interpolation on log-power for sub-bin precision
+    alpha = np.log(fft_mag[peak_idx - 1] + 1e-30)
+    beta  = np.log(fft_mag[peak_idx]     + 1e-30)
+    gamma = np.log(fft_mag[peak_idx + 1] + 1e-30)
+    delta = float(np.clip(0.5 * (alpha - gamma) / (alpha - 2.0 * beta + gamma + 1e-30), -0.5, 0.5))
+
+    peak_freq = freqs[peak_idx] + delta * freqs[1]
+    period    = float(1.0 / peak_freq) if peak_freq > 0 else float("inf")
+    peak_power = float(fft_mag[peak_idx] / total_power)
+    return period, peak_power
+
+
 # ── Top-level entry point ─────────────────────────────────────────────────────
 
 
@@ -262,5 +302,10 @@ def run_episode(p: ModelParams, seed: int, progress: bool = False) -> RunResult:
     summary["uc_oscillation"] = float(np.sum(signs[1:] != signs[:-1])) if len(signs) > 1 else 0.0
     summary["uc_flip_rate"] = float(np.abs(np.diff(uc_arr[-mw:])).mean()) / float(p.L**2)
     summary["resilience_std"] = float(ts["resilience"][-mw:].std())
+
+    # FFT oscillation metrics on resilience (measurement window)
+    osc_period, osc_power = _fft_oscillation(ts["resilience"][-mw:])
+    summary["osc_period"] = osc_period
+    summary["osc_power"] = osc_power
 
     return RunResult(params=p, seed=seed, timeseries=ts, summary=summary)

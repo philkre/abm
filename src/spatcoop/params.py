@@ -61,6 +61,7 @@ class ModelParams:
     lambda_max: float = 4.0  # upper bound for uniform draw
 
     # Flags
+    initial_e: float = 0.0   # starting EHI for all cells (0 = neutral, -1 = fully degraded)
     well_mixed: bool = False  # True → every agent's group is the whole population
     frozen_strategies: bool = False  # True → no Fermi, no mutation (Jonsson validation)
     initial_mix: str = "equal"  # "equal" (UC/D 50-50) | "thirds" (UC/CC/D equal)
