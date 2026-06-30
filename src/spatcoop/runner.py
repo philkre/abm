@@ -20,6 +20,7 @@ from spatcoop.model import run_episode, RunResult
 @contextmanager
 def _tqdm_joblib(bar: tqdm):
     """Patch joblib's batch callback to tick a tqdm bar on each completed task."""
+
     class _Callback(joblib.parallel.BatchCompletionCallBack):
         def __call__(self, *args, **kwargs):
             bar.update(n=self.batch_size)
@@ -33,22 +34,25 @@ def _tqdm_joblib(bar: tqdm):
         joblib.parallel.BatchCompletionCallBack = old
         bar.close()
 
-RESULTS_DIR = Path("results/raw")
+
+_DEFAULT_RAW_DIR = Path("results/raw")
 
 
-def result_path(p: ModelParams, seed: int) -> Path:
-    return RESULTS_DIR / f"{p.hash()}_{seed:06d}.npz"
+def result_path(p: ModelParams, seed: int, raw_dir: Path = _DEFAULT_RAW_DIR) -> Path:
+    return raw_dir / f"{p.hash()}_{seed:06d}.npz"
 
 
-def already_done(p: ModelParams, seed: int) -> bool:
-    return result_path(p, seed).exists()
+def already_done(p: ModelParams, seed: int, raw_dir: Path = _DEFAULT_RAW_DIR) -> bool:
+    return result_path(p, seed, raw_dir).exists()
 
 
-def save_result(r: RunResult) -> None:
-    path = result_path(r.params, r.seed)
+def save_result(r: RunResult, raw_dir: Path = _DEFAULT_RAW_DIR) -> None:
+    path = result_path(r.params, r.seed, raw_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     arrays: dict = {f"ts_{k}": v for k, v in r.timeseries.items()}
     arrays.update({f"sum_{k}": np.array(v) for k, v in r.summary.items()})
+    if r.snapshots:
+        arrays.update({f"snap_{k}": v for k, v in r.snapshots.items()})
     arrays["params_json"] = np.array(json.dumps(asdict(r.params)), dtype=object)
     arrays["seed"] = np.array(r.seed)
     np.savez_compressed(path, **arrays)
@@ -59,26 +63,34 @@ def load_result(path: Path) -> RunResult:
     p = ModelParams(**json.loads(str(d["params_json"])))
     ts = {k[3:]: d[k] for k in d if k.startswith("ts_")}
     summary = {k[4:]: float(d[k]) for k in d if k.startswith("sum_")}
-    return RunResult(params=p, seed=int(d["seed"]), timeseries=ts, summary=summary)
+    snap = {k[5:]: d[k] for k in d if k.startswith("snap_")}
+    return RunResult(
+        params=p,
+        seed=int(d["seed"]),
+        timeseries=ts,
+        summary=summary,
+        snapshots=snap or None,
+    )
 
 
-def _run_one(p: ModelParams, seed: int) -> None:
+def _run_one(p: ModelParams, seed: int, raw_dir: Path = _DEFAULT_RAW_DIR) -> None:
     """Run one episode and save; skip if already on disk."""
-    if already_done(p, seed):
+    if already_done(p, seed, raw_dir):
         return
     r = run_episode(p, seed)
-    save_result(r)
+    save_result(r, raw_dir)
 
 
 def run_batch(
     params_list: list[ModelParams],
     seeds: list[int],
     n_jobs: int = -1,
+    raw_dir: Path = _DEFAULT_RAW_DIR,
 ) -> None:
     """Run all (params, seed) combinations not already on disk. Idempotent."""
-    tasks = [(p, s) for p in params_list for s in seeds if not already_done(p, s)]
+    tasks = [(p, s) for p in params_list for s in seeds if not already_done(p, s, raw_dir)]
     n_cached = len(params_list) * len(seeds) - len(tasks)
     print(f"Running {len(tasks)} new combinations ({n_cached} already cached).")
     bar = tqdm(total=len(tasks), desc="batch", unit="run")
     with _tqdm_joblib(bar):
-        Parallel(n_jobs=n_jobs, verbose=0)(delayed(_run_one)(p, s) for p, s in tasks)
+        Parallel(n_jobs=n_jobs, verbose=0)(delayed(_run_one)(p, s, raw_dir) for p, s in tasks)

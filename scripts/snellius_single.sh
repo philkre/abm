@@ -1,7 +1,7 @@
 #!/bin/bash
 # Single-node batch job for the linear-risk SA.
 # Wall time: ~2h at L=150, N=512, 50 seeds, 32 CPUs.
-#SBATCH --job-name=spatcoop_sa
+#SBATCH --job-name=sa_spatcoop
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=24

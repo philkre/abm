@@ -1,5 +1,4 @@
 *.pdf
-
 # Python runtime files
 .venv
 *.pyc
@@ -14,3 +13,7 @@ data/
 # Figures and plots
 *.gif
 *.png
+
+# Log files
+*.err
+*.out

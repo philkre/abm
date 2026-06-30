@@ -58,6 +58,7 @@ class ModelParams:
     # Loss aversion (CC only; λ_i distribution)
     lambda_mode: str = "homogeneous"  # "homogeneous" | "lognormal" | "uniform"
     lambda_mean: float = 1.0  # 1.0 = risk-neutral; 2.25 = K-T mean
+    lambda_sigma: float = 0.5  # log-normal σ (shape); headline value from K-T literature
     lambda_max: float = 4.0  # upper bound for uniform draw
 
     # Flags
@@ -65,6 +66,15 @@ class ModelParams:
     well_mixed: bool = False  # True → every agent's group is the whole population
     frozen_strategies: bool = False  # True → no Fermi, no mutation (Jonsson validation)
     initial_mix: str = "equal"  # "equal" (UC/D 50-50) | "thirds" (UC/CC/D equal)
+
+    # Explicit initial strategy fractions (used when initial_mix == "fractions").
+    # initial_d_frac is implied as 1 - initial_uc_frac - initial_cc_frac.
+    initial_uc_frac: float = 0.0
+    initial_cc_frac: float = 0.0
+
+    # Initial environment state (uniform across all cells); in [-1, 1].
+    # Default 0 = neutral; set to -1 for full-degradation recovery experiments.
+    initial_e: float = 0.0
 
     def hash(self) -> str:
         """12-char hex digest; stable across Python runs."""

@@ -1,161 +1,118 @@
-# Cooperation in the Face of Disaster — ABM
+# Spatial Flood Cooperation — ABM
 
-Implementation of Jonsson & Jonsson (2025), *PLoS ONE* 20(4): e0318891.
+Agent-based model of households maintaining shared flood defences on a spatial lattice. Three strategies compete — unconditional cooperators (UC), conditional cooperators (CC), and defectors (D) — in a threshold public-goods game coupled to an environmental feedback loop that links collective effort to local flood risk.
 
-**Paper:** [doi.org/10.1371/journal.pone.0318891](https://doi.org/10.1371/journal.pone.0318891)  
-**Paper's simulation code:** [github.com/markusrobertjonsson/condcoop](https://github.com/markusrobertjonsson/condcoop)
+**Research question:** Can locally organised communities sustain flood defences against free-riding, and which strategy mix is most resilient?
+
+**Model lineage:** Builds on the evolutionary spatial PGG of Ding et al. (2024) and the environmental feedback model of Weitz et al. (2016), with three novelties: a threshold flood-immunity rule, a resilience-erosion term (floods damage defences), and conditional cooperation as a third strategy type following Jonsson & Jonsson (2025).
+
+---
 
 ## Structure
 
 ```
-src/coop_disaster/  # Python ABM package (Fig 7 sweep)
-  types.py          # PlayerType, LcpParams, SimConfig, DEFAULT_CONFIG
-  lcp.py            # contribution() — single-agent LCP update
-  group.py          # assign_types(), simulate_group()
-  sweep.py          # run_sweep() — parallel UC proportion sweep
-  plot.py           # plot_fig7()
-  __main__.py       # CLI entry point (argparse)
-src/spatial/        # Spatial threshold PGG on a Von Neumann lattice (Mesa 3.x)
-  config.py         # ModelConfig dataclass + DEFAULT_CONFIG
-  agents.py         # HouseholdAgent (UC / D strategies, CellAgent)
-  model.py          # SpatialCollectiveRiskModel — full phase-based step loop
-  run.py            # Entry point: run 500 steps, save results.png
-julia_implementation/  # Julia simulation (reference implementation)
-notebooks/          # Python/Mesa exercises (course material)
-  1/1-mesa/         # Mesa basics
-  2-3/2-axelrod/    # Axelrod tournament
-  2-3/3-discrete-choice/
-  4/                # Wolf-sheep predator-prey + sensitivity analysis
+src/spatcoop/       # Main model — NumPy/Numba ABM + full SA pipeline
+src/spatial/        # Precursor — Mesa 3.x model with Weitz-style feedback
+src/coop_disaster/  # Jonsson validation (well-mixed, used for mean-field baseline)
+src/condcoop/       # Additional Jonsson figures
+tests/              # Verification test suite
+scripts/            # Snellius HPC batch jobs
+notebooks/          # Course practicals
 ```
-
-## Paper summary
-
-Threshold Public Goods Game with stochastic disasters. Groups of 4 players each contribute from a 20-unit endowment per round. If group contribution ≥ 60 when a disaster check occurs (40% probability per round), the group is safe. Otherwise earnings are zeroed.
-
-Three player types defined by Linear Contribution Profiles (LCP):
-
-| Type | Behaviour | Fixed point |
-|------|-----------|-------------|
-| UC — Unconditional Cooperator | Always contributes ~17 regardless of others | 17.13 |
-| CC — Conditional Cooperator | Matches others; low in isolation | 6.06 |
-| FR — Free-Rider | Always contributes ~5 | 4.74 |
-
-Key finding: cooperation is higher and increases over time when disaster risk is present, driven by unconditional cooperators.
-
-## Julia simulation (Fig 7)
-
-Sweeps UC proportion 0→1 (CC:FR ratio fixed at 10.2), runs 1000 groups × 200 rounds, plots fraction of successful groups. Only all-UC groups reach the threshold — producing the convex curve in Fig 7.
-
-**Setup** (Julia 1.7+ required):
-
-```bash
-cd sim
-julia --project=. -e 'using Pkg; Pkg.instantiate()'
-```
-
-**Run:**
-
-```bash
-julia --project=. --threads=auto scripts/fig7.jl
-# → saves sim/fig7.png
-```
-
-**Test:**
-
-```bash
-julia --project=. --threads=auto test/runtests.jl
-```
-
-## Python simulation
-
-**Setup** ([uv](https://docs.astral.sh/uv/) required):
-
-```bash
-uv sync
-```
-
-**Run (Fig 7 sweep):**
-
-```bash
-uv run coop-disaster                   # 1 000 groups, serial
-uv run coop-disaster --jobs 4          # parallel with 4 workers
-uv run coop-disaster --help            # all options
-```
-
-Key options:
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--n-groups N` | 1000 | Groups per UC proportion value |
-| `--n-rounds N` | 200 | LCP update rounds per group |
-| `--uc-steps N` | 101 | Points swept from 0 → 1 |
-| `--output FILE` | fig7.png | Output plot path |
-| `--jobs N` | 1 | Parallel worker processes |
-| `--no-plot` | — | Skip plot, print table only |
-
-**Use as a library:**
-
-```python
-from coop_disaster import SimConfig, run_sweep
-
-cfg = SimConfig(n_groups=500, n_rounds=200)
-uc_props = [i / 100 for i in range(101)]
-rates = run_sweep(uc_props, cfg, n_jobs=4)
-```
-
-## Spatial threshold PGG (src/spatial/)
-
-A minimal spatial collective-risk game on a 20×20 torus with Von Neumann
-neighbourhoods.  Agents are Unconditional Cooperators (UC) or Defectors (D).
-They pool contributions within focal groups (agent + 4 neighbours), face
-independent disaster draws when the pool is below the threshold, and update
-strategies by synchronous Fermi imitation.
-
-**Run (500 steps, saves `results.png`):**
-
-```bash
-uv run spatial-run
-uv run python src/spatial/plot.py
-```
-
-**Use as a library:**
-
-```python
-from spatial import SpatialCollectiveRiskModel, ModelConfig
-
-cfg = ModelConfig(grid_size=20, n_steps=500, seed=42)
-model = SpatialCollectiveRiskModel(cfg)
-for _ in range(cfg.n_steps):
-    model.step()
-df = model.datacollector.get_model_vars_dataframe()
-```
-
-**Key parameters** (all in `ModelConfig`):
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `grid_size` | 20 | Side length of the square lattice |
-| `initial_uc_fraction` | 0.5 | Starting UC fraction |
-| `initial_wealth` | 10.0 | Initial wealth per agent |
-| `contribution` | 1.0 | UC contribution per round |
-| `threshold` | 3.0 | Pool sum needed to avert disaster |
-| `disaster_prob` | 0.5 | Prob of loss if pool < threshold |
-| `loss_fraction` | 0.5 | Fraction of wealth lost in disaster |
-| `beta` | 1.0 | Fermi selection strength |
-| `mu` | 0.001 | Mutation probability per agent per step |
-| `n_steps` | 500 | Steps run by `spatial-run` |
-| `seed` | 42 | RNG seed |
 
 ---
 
-## Python notebooks
+## Model
 
-**Setup** ([uv](https://docs.astral.sh/uv/) required):
+Agents occupy an L × L torus; each belongs to a focal group of 5 (itself + 4 von Neumann neighbours). Each generation:
+
+1. **Contribute.** UC pays c̄; D pays 0; CC matches the mean of neighbours' previous contributions, with an optional loss-aversion premium.
+2. **Pool.** Contributions are summed per focal group.
+3. **Flood check.** Groups clearing threshold T are immune; others face flood probability p\_i = f(e\_i), where e\_i ∈ [−1, 1] is the local defence environment.
+4. **Wealth update.** Ornstein–Uhlenbeck process: additive income, minus contribution, minus fractional loss on a flood.
+5. **Environment update.** Cooperation repairs defences, neglect degrades them, and floods cause additional damage η (the resilience-erosion trap).
+6. **Imitation.** Fermi rule — agents copy better-performing neighbours stochastically.
+
+The mean-field well-mixed reduction admits only the all-defector equilibrium; spatial structure is the necessary condition for cooperation to survive.
+
+---
+
+## Main package: `spatcoop`
+
+High-performance NumPy/Numba ABM with Sobol and PAWN sensitivity analysis via SALib.
+
+**Setup** ([uv](https://docs.astral.sh/uv/) and Python ≥ 3.13 required):
 
 ```bash
-cd notebooks
 uv sync
-uv run jupyter notebook
 ```
 
-Navigate to `notebooks/` in Jupyter.
+**Single run:**
+
+```bash
+uv run spatcoop run-single --L 50 --n-gens 500 --seed 0
+```
+
+**Sensitivity analysis (Snellius HPC):**
+
+```bash
+sbatch scripts/snellius_sobol_linear.sh   # Sobol S1/ST, linear risk phase
+sbatch scripts/snellius_pawn_linear.sh    # PAWN KS, single-node
+```
+
+**Diagnostic plots:**
+
+```bash
+bash scripts/make_sa_plots.sh             # curated SA bar charts
+bash scripts/make_sa_plots_all.sh         # all 26 order-parameter bars
+sbatch scripts/snellius_diagnostics.sh   # timeseries, spectra, lattice snapshots
+sbatch scripts/snellius_sweeps.sh        # 1-D parameter sweeps
+```
+
+**Key parameters** (all in `src/spatcoop/params.py`):
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `L` | 150 | Lattice side length |
+| `c_bar` | 0.75 | UC/CC max contribution |
+| `T` | 3.75 | Threshold pool for immunity (= 0.75 × 5) |
+| `p_max` | 0.5 | Maximum flood probability |
+| `ell` | 0.34 | Flood loss fraction |
+| `delta` | 0.03 | Environment repair rate per cooperator |
+| `gamma` | 0.03 | Environment degradation rate per defector |
+| `eta` | 0.0 | Flood damage to defences (0 = no erosion) |
+| `beta` | 2.0 | Fermi selection strength |
+| `mu` | 0.01 | Mutation rate |
+| `risk_mode` | `linear` | `linear` or `sigmoid` flood–environment link |
+
+---
+
+## Precursor: `spatial`
+
+Mesa 3.x model with Weitz-style continuous environmental feedback (no threshold immunity, no resilience erosion). Useful for isolating the feedback mechanism.
+
+```bash
+uv run spatial-run
+```
+
+---
+
+## Jonsson validation: `coop_disaster`
+
+Well-mixed threshold PGG used to reproduce the Jonsson & Jonsson (2025) mean-field baseline and verify the model against their Fig 7.
+
+```bash
+uv run coop-disaster          # 1 000 groups, serial
+uv run coop-disaster --jobs 4 # parallel
+uv run coop-disaster --help
+```
+
+---
+
+## Notebooks
+
+Course practicals (Mesa intro, Axelrod, Wolf–Sheep, sensitivity analysis):
+
+```bash
+cd notebooks && uv sync && uv run jupyter notebook
+```
