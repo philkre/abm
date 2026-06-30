@@ -67,14 +67,17 @@ uv run spatcoop run-single --L 50 --n-gens 500 --seed 0
 uv run python scripts/sweep_b_phase.py
 uv run python scripts/phase_recovery.py
 
-# Sensitivity analysis (Snellius HPC)
-sbatch scripts/snellius_sobol_linear.sh
-sbatch scripts/snellius_pawn_linear.sh
-
 # Plots
 uv run python scripts/plot_osc_summary.py
 uv run python scripts/plot_timeseries.py
 ```
+
+**Sensitivity analysis** — the report's PAWN+Sobol' results (4 parameters: β, p_max, T/E, ℓ) are
+already committed; reproduce the figures in seconds with `bash scripts/make_sa_plots.sh`, or
+re-run from scratch — see [`scripts/SCRIPTS.md`](scripts/SCRIPTS.md#reproducing-the-reports-sensitivity-analysis)
+for the exact commands. The Discussion also proposes an extended 5-parameter design (varying
+income `b` and erosion rate `η` directly); it was attempted on Snellius but did not complete —
+status and resume instructions in [`scripts/SCRIPTS.md`](scripts/SCRIPTS.md#extended-sensitivity-analysis-proposed-not-completed).
 
 ---
 

@@ -4,6 +4,76 @@ All scripts run from the **`philkre-abm/` root** via `uv run`.
 
 ---
 
+## Reproducing the report's sensitivity analysis
+
+The report's §Sensitivity Analysis (PAWN + Sobol' over 4 parameters: β, p_max, T/E, ℓ) is the
+analysis actually published, backed by the committed results in `results/sa/linear_pawn/` and
+`results/sa/linear_sobol/`. Two ways to reproduce it, cheapest first.
+
+**1. Replot from committed results (seconds, no simulation):**
+```bash
+bash scripts/make_sa_plots.sh
+```
+Regenerates every SA figure in the report (main text + appendix) from the already-committed
+indices — no re-simulation needed.
+
+**2. Re-run from scratch** (6,140 PAWN + 61,440 Sobol episodes total; the Sobol run is
+HPC-scale — it's what originally ran on a single Snellius `genoa` node):
+```bash
+# PAWN: N=307 LHS samples × 20 seeds
+uv run spatcoop sensitivity run \
+    --vary beta:0.1:10.0 --vary p_max:0.0:1.0 --vary T_over_E:0.4:0.9 --vary ell:0.0:1.0 \
+    --fix L:200 --fix n_gens:1500 --fix eta:0.03 --fix b:1.0 --fix sigma:0.1 \
+    --fix kappa:0.2 --fix mu:0.01 --fix delta:0.03 --fix gamma:0.03 \
+    --fix lambda_mode:homogeneous --fix lambda_mean:1.0 --fix initial_mix:thirds \
+    --output-key resilience --output-key flood_rate --output-key mean_env \
+    --output-key coop_frac --output-key gini_wealth --output-key interface_density \
+    --output-key mean_fitness --output-key mean_payoff \
+    --method pawn --N 307 --n-seeds 20 --out-dir results/sa/linear_pawn
+
+# Sobol: N=512 base → 3,072 Saltelli points × 20 seeds (same --vary/--fix/--output-key as above)
+uv run spatcoop sensitivity run \
+    --vary beta:0.1:10.0 --vary p_max:0.0:1.0 --vary T_over_E:0.4:0.9 --vary ell:0.0:1.0 \
+    --fix L:200 --fix n_gens:1500 --fix eta:0.03 --fix b:1.0 --fix sigma:0.1 \
+    --fix kappa:0.2 --fix mu:0.01 --fix delta:0.03 --fix gamma:0.03 \
+    --fix lambda_mode:homogeneous --fix lambda_mean:1.0 --fix initial_mix:thirds \
+    --output-key resilience --output-key flood_rate --output-key mean_env \
+    --output-key coop_frac --output-key gini_wealth --output-key interface_density \
+    --output-key mean_fitness --output-key mean_payoff \
+    --method sobol --N 512 --n-seeds 20 --out-dir results/sa/linear_sobol
+```
+Then `bash scripts/make_sa_plots.sh` to regenerate the figures from the new results.
+
+---
+
+## Extended sensitivity analysis (proposed, not completed)
+
+The Discussion proposes extending the design above to directly vary income `b` and the
+resilience-erosion rate `η` — the two parameters the Results identify as the primary drivers of
+recovery, but which the published SA holds fixed — together with heterogeneous loss aversion
+(`lambda_mode=lognormal, lambda_mean=2.25`) instead of the risk-neutral default.
+
+**Design:** β [0.1,10], p_max [0,1], T/E [0.2,0.9], b [1,30], η [0,0.020].
+Fixed: δ=0.042, γ=0.018, κ=0.1, c̄=0.75, ℓ=0.64, σ=0.1.
+
+**Status: attempted, not completed.** The PAWN run simulated all 71,680 episodes, but the analysis
+step (computing the indices from the checkpoints) was repeatedly killed by Snellius's 2-hour
+wall-time limit. The Sobol run never started — every submission was cancelled by the scheduler due
+to an unresolved CPU-allocation issue on this account. The project's Snellius compute budget is
+now exhausted; re-running needs a fresh allocation.
+
+```bash
+sbatch scripts/snellius_pawn_linear.sh    # N=3584 LHS × 20 seeds = 71,680 episodes, ~8-10h
+sbatch scripts/snellius_sobol_linear.sh   # N=5120 → 35,840 points × 20 seeds = 716,800 episodes, ~7-9h
+```
+
+If the PAWN checkpoints are still on scratch, recover the indices without re-simulating:
+```bash
+sbatch scripts/snellius_pawn_analyse.sh   # runs scripts/recover_pawn_and_analyse.py
+```
+
+---
+
 ## Exploratory money-parameter SA (local, fast)
 
 Sweeps 5 money/process parameters while holding NetLogo env params fixed:
@@ -16,52 +86,17 @@ phase-transition lever; c̄ and T/E dominate cooperative dynamics.
 
 ```bash
 # 1. Generate data (L=60, 200 gens, N=16 → 112 samples × 3 seeds ≈ 5 min)
-.venv/Scripts/python.exe scripts/local_money_sa_run.py
+.venv/Scripts/python.exe archive/scripts/local_money_sa_run.py
 
 # Optional: larger run for better statistics
-.venv/Scripts/python.exe scripts/local_money_sa_run.py --N 32 --L 100 --n-gens 500
+.venv/Scripts/python.exe archive/scripts/local_money_sa_run.py --N 32 --L 100 --n-gens 500
 
 # 2. Plot Sobol heatmap + timeseries PDF
-.venv/Scripts/python.exe scripts/local_money_sa_plot.py
+.venv/Scripts/python.exe archive/scripts/local_money_sa_plot.py
 ```
 
 Outputs: `results/local_money_sa/sobol_heatmap.pdf`, `results/local_money_sa/timeseries.pdf`
-
----
-
-## Snellius — main Sobol SA (linear risk phase, v2)
-
-5-parameter Sobol SA (updated 2026-06-27):
-  **β [0.1,10], p_max [0,1], T/E [0.2,0.9], b [1,30], η [0,0.020]**
-  Fixed: delta=0.042, gamma=0.018, kappa=0.1, c_bar=0.75, ell=0.64, sigma=0.1,
-         lambda_mode=lognormal, lambda_mean=2.25, lambda_sigma=0.5 (heterogeneous λ)
-
-N=5120 → 35,840 Saltelli samples × 20 seeds = 716,800 episodes (~7–9 h on Genoa).
-14 output keys: resilience, flood_rate, mean_env, mean_env_std, coop_frac,
-  coop_frac_std, p_span_UC, p_span_CC, interface_density, mean_wealth,
-  mean_wealth_std, gini_wealth, mean_fitness, mean_payoff.
-
-```bash
-sbatch scripts/snellius_sobol_linear.sh
-```
-
-After completion, analyse results:
-```bash
-spatcoop sensitivity analyse --out-dir /scratch-shared/lschoonheid/results/sa/linear_sobol
-bash scripts/make_sa_plots.sh
-```
-
----
-
-## Snellius — PAWN SA (linear risk phase, v2)
-
-Same 5 parameters as Sobol, Latin Hypercube + KS statistic. Run separately
-(LHS is not deterministic — do not split across array tasks).
-N=3584 = 512*(5+2) LHS samples × 20 seeds = 71,680 episodes (~8–10 h on Genoa).
-
-```bash
-sbatch scripts/snellius_pawn_linear.sh
-```
+(N=16, L=60 — exploratory only, not statistically significant; not used in the report).
 
 ---
 
@@ -72,7 +107,7 @@ Documents the effect of loss-aversion spread on cooperation and resilience (ODD+
 second heterogeneity axis beyond wealth). All other parameters at headline values.
 
 ```bash
-sbatch scripts/snellius_lambda_sa.sh
+sbatch archive/scripts/snellius_lambda_sa.sh
 ```
 
 After completion:
@@ -98,7 +133,7 @@ sbatch scripts/snellius_sweeps.sh
 Long baseline runs at L=200 for timeseries and spatial snapshot figures.
 
 ```bash
-sbatch scripts/snellius_diagnostics.sh
+sbatch archive/scripts/snellius_diagnostics.sh
 ```
 
 ---
@@ -125,7 +160,7 @@ Fixed: T=1.7, p_max=1.0, eta=0.005, sigma=0.1, c_bar=0.75, delta=0.042, gamma=0.
 Estimated ~2–3 h on 96 CPUs.
 
 ```bash
-sbatch scripts/snellius_ell_b_sa.sh
+sbatch archive/scripts/snellius_ell_b_sa.sh
 ```
 
 Results: `/scratch-shared/lschoonheid/results/ell_b_sa/`
@@ -148,10 +183,10 @@ Run on the Snellius login node or locally after syncing results.
 
 ```bash
 # On Snellius login node
-uv run python scripts/plot_wealth_diagnostics.py
+uv run python archive/scripts/plot_wealth_diagnostics.py
 
 # Locally (after rsync of ell_b_sa/ from scratch)
-.venv/Scripts/python.exe scripts/plot_wealth_diagnostics.py \
+.venv/Scripts/python.exe archive/scripts/plot_wealth_diagnostics.py \
     --data-dir /synced/ell_b_sa \
     --raw-dir  /synced/ell_b_sa/raw
 
@@ -165,7 +200,7 @@ uv run python scripts/plot_wealth_diagnostics.py
     --fix initial_mix:thirds --fix lambda_mode:lognormal --fix lambda_mean:2.25 \
     --output-key gini_wealth --output-key mean_wealth --output-key coop_frac \
     --out-dir results/test_ell_b --raw-dir results/test_ell_b/raw
-.venv/Scripts/python.exe scripts/plot_wealth_diagnostics.py \
+.venv/Scripts/python.exe archive/scripts/plot_wealth_diagnostics.py \
     --data-dir results/test_ell_b --raw-dir results/test_ell_b/raw \
     --out results/test_ell_b/wealth_diagnostics_test.pdf
 ```
