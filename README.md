@@ -1,6 +1,6 @@
 # Spatial Cooperation under Flood Risk
 
-** [Justus de Bruijn Kops](https://github.com/loyalLogician) · [Zoë Busche](https://github.com/zzzimtzoe) · [Philipp Kreiter](https://github.com/philkre) · [Laszlo Schoonheid](https://github.com/lschoonheid) · Agent-Based Modelling, University of Amsterdam, 2026**
+**[Justus de Bruijn Kops](https://github.com/loyalLogician) · [Zoë Busche](https://github.com/zzzimtzoe) · [Philipp Kreiter](https://github.com/philkre) · [Laszlo Schoonheid](https://github.com/lschoonheid) · University of Amsterdam, 2026**
 
 Agent-based model of households maintaining shared flood defences on a spatial lattice. Three strategies — unconditional cooperators (UC), conditional cooperators (CC), and defectors (D) — compete in a threshold public-goods game with environmental feedback linking collective effort to local flood risk.
 
